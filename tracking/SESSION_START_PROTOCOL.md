@@ -114,6 +114,17 @@ Hora de fin estimada: ________________
 1. Documentar avance en PROGRESS_TRACKER.md
 2. Identificar tareas para mañana
 3. Guardar contexto en Engram
+4. **⚠️ REGLA OBLIGATORIA — docs/ es un SUBMÓDULO PRIVADO:**
+   - Si hubo cambios en `docs/` (markdowns, notas, trackers, etc.):
+     a. **Commitear los cambios al repo PRIVADO** `call_me_maybe_docs`
+        (`cd docs && git add . && git commit -m "..." && git push`).
+     b. **Actualizar el repo PRINCIPAL** para que traiga ese nuevo commit del
+        submódulo: en el raíz del proyecto,
+        `git add docs && git commit -m "chore: bump docs submodule" && git push`.
+   - NUNCA dejar cambios de `docs/` sin versionar en el privado, ni el puntero
+     del submódulo desactualizado en el principal.
+   - El contenido de `docs/` NO debe ir al repo público directo: vive solo en el
+     submódulo privado.
 
 ---
 

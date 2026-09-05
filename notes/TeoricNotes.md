@@ -100,3 +100,86 @@ No hay que declararlos. Cuando el parser los detecta:
     valida la FORMA de la invocación. Separación de responsabilidades: el CLI
     define la interfaz; la lógica valida los datos.
 
+---
+
+## MODELO ML: ENTRENAMIENTO vs INFERENCIA (del recorrido: src/pipeline.py)
+
+> Síntesis de lo que NO sabía y de mis confusiones al ver `Small_LLM_Model()`,
+> `.eval()`, `dropout`, `requires_grad` y `batchNorm`. Todo ML, nada de código.
+
+### La analogía que lo unifica todo: la fábrica con MILLONES de perillas
+- El modelo (Qwen3) es una fábrica: entra texto → sale texto.
+- Adentro hay millones de **perillas ajustables**, cada una con un número.
+- **El número de cada perilla = un PESO (weight).**
+- La combinación de TODAS las perillas = lo que el modelo "sabe".
+  Cambiás las perillas → el modelo responde distinto.
+
+### ENTRENAMIENTO = ajustar las perillas (aprender)
+1. Le mostrás millones de ejemplos (input + respuesta correcta).
+2. Él responde, comparás con la correcta y calculás el **ERROR** (qué tan lejos estuvo).
+3. Los **GRADIENTES** son la "brújula": te dicen hacia dónde girar cada perilla
+   para que el error baje.
+4. Girás según la brújula, repetís miles de veces → el error baja → aprendió.
+
+👉 **CONFUSIÓN ACLARADA (la duda central):** el entrenamiento SÍ produce un
+**cambio PERMANENTE en los pesos** (quedan grabados en disco, archivo safetensors).
+Ese es el objetivo del entrenamiento.
+
+### INFERENCIA = usar la fábrica ya ajustada (sin tocar nada)
+- El modelo **YA viene entrenado** (perillas fijas).
+- Solo pasás texto → recibís output. NO ajustás ninguna perilla.
+- Cada pasada input→output se llama **forward** ("hacia adelante", una sola dirección).
+
+### ¿Qué es `requires_grad`? (MI MAYOR CONFUSIÓN)
+> **`requires_grad` NO entrena. Solo decide si se RASTREA la info necesaria para
+> (potencialmente) entrenar.**
+
+- `requires_grad=True` → PyTorch guarda la "brújula" (gradientes) en cada forward.
+  Solo sirve si vas a entrenar.
+- `requires_grad=False` → NO guarda la brújula. Punto.
+
+**Confusión que tuve:** creí que "gradientes → afina la inferencia" y que aumentaba
+la capacidad de inferencia a costo de memoria/velocidad, y que podía cambiar el modelo
+de forma permanente. **TODO ESO ES FALSO:**
+- El entrenamiento NO se hace en tiempo de ejecución → se hace ANTES, offline, para
+  producir los pesos. La inferencia solo los USA.
+- En NUESTRO proyecto NO entrenamos NADA (Qwen3 ya viene entrenado). Solo inferencia.
+- `requires_grad=False` no mejora NI empeora la calidad → solo hace la inferencia
+  MÁS BARATA (menos memoria, más rápida), porque no rastrea gradientes.
+- **NO hay cambio permanente**: como no tocás las perillas, el modelo queda igual
+  después de correrlo. `requires_grad` es una config de tiempo de ejecución, no cambia
+  el modelo en disco.
+
+**En una línea:** el entrenamiento (con gradientes) cambia el modelo permanentemente;
+`requires_grad=False` solo te ahorra el costo de rastrear gradientes que NO vas a usar
+porque no entrenás.
+
+### CONCEPTOS QUE NO SABÍA (en criollo)
+- **Forward:** una pasada input→output por el modelo. Su opuesto (backward /
+  backpropagation) usa los gradientes para entrenar → nosotros NUNCA lo hacemos.
+- **Dropout:** durante el entrenamiento, "apagar al azar" algunas perillas en cada
+  pasada, para que el modelo no dependa de un solo camino. Lo fuerza a aprender
+  caminos alternativos → patrones más generales. En inferencia se desactiva porque
+  querés la fábrica COMPLETA y determinista (mismo input → mismo output).
+- **Overfitting:** NO es "sobreestructuración" (mi intuición, casi). Es: el modelo se
+  aprende de MEMORIA los ejemplos de entrenamiento en vez de la REGLA general.
+  Analogía: estudiante que memoriza el examen viejo en vez de entender la materia →
+  le va bien en lo que vio, mal con preguntas nuevas. Dropout sirve para EVITARLO.
+- **BatchNorm:** detalle interno de entrenamiento que normaliza valores de cada capa
+  para que no exploten. NO hace falta dominarlo para este proyecto. Solo sabé que su
+  comportamiento cambia entre train y eval (por eso `.eval()` lo conmuta con dropout).
+
+### POR QUÉ `.eval()` (qué hace exactamente)
+- Por defecto PyTorch arranca en modo `train` (dropout ACTIVO).
+- `.eval()` conmuta a modo inferencia: apaga dropout y ajusta batchnorm.
+- En inferencia NO querés aleatoriedad → mismo input debe dar siempre mismo output.
+  Con dropout activo, cada corrida daría resultado distinto y degradado.
+
+### LO RELEVANTE PARA MI PROYECTO (para no perderme)
+- NO voy a entrenar nada en call_me_maybe. El modelo viene entrenado.
+- Mi laburo real = **inferencia** + **el DECODER (constrained decoding)** = Phase 3,
+  donde está toda la complejidad. El entrenamiento/dropout/gradientes son contexto,
+  no mi día a día.
+- Con saber "el modelo viene afinado y yo solo lo uso" + "requires_grad=False = no
+  voy a entrenar, ahorro costos", tengo lo que necesito.
+

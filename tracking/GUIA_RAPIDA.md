@@ -19,6 +19,13 @@
    - Bloqueos encontrados
 2. **Haz commit** con mensaje claro
 3. **Guarda contexto** en Engram
+4. **⚠️ OBLIGATORIO — docs/ es un SUBMÓDULO PRIVADO:**
+   - Si cambiaste algo en `docs/`, commiteá al repo PRIVADO
+     (`cd docs && git add . && git commit -m "..." && git push`) y
+     actualizá el puntero en el PRINCIPAL
+     (`git add docs && git commit -m "chore: bump docs submodule" && git push`).
+   - Nunca dejar docs/ sin versionar en el privado, ni el submódulo
+     desactualizado en el público.
 
 ---
 
