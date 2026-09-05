@@ -1,0 +1,130 @@
+# PROGRESS_TRACKER.md
+## Tracking de Avance - Escuela 42
+
+### Última Actualización: 5 septiembre 2026
+
+---
+
+## 📈 MÉTRICAS GENERALES
+
+| Proyecto | Días Completados | Fases Completadas | Estado |
+|----------|------------------|-------------------|--------|
+| Call Me Maybe | 2/12 | 2/7 | 🟢 En progreso |
+| Flying | 0/7 | 0/6 | ⚪ No iniciado |
+| Codection | 0/8 | 0/8 | ⚪ No iniciado |
+
+---
+
+## 📅 SEGUIMIENTO DIARIO
+
+### Semana 1 (3-7 septiembre)
+
+**3 septiembre (Día 1)**
+- Horas trabajadas: __
+- Avance: Call Me Maybe - Verificación de Phase 1
+- Bloqueos: Ninguno
+- Notas: Inicio de cronograma general
+
+**4 septiembre (Día 2)**
+- Horas trabajadas: __
+- Avance: __
+- Bloqueos: __
+- Notas: __
+
+**5 septiembre (Día 3)**
+- Horas trabajadas: __
+- Avance: __
+- Bloqueos: __
+- Notas: __
+
+**6 septiembre (Día 4)**
+- Horas trabajadas: __
+- Avance: __
+- Bloqueos: __
+- Notas: __
+
+**7 septiembre (Día 5)**
+- Horas trabajadas: __
+- Avance: __
+- Bloqueos: __
+- Notas: __
+
+---
+
+### Jornada Nocturna — 4/5 septiembre 2026 (Día 10 del cronograma)
+
+- **Horas hiperfoco**: ~5h (ritmo pomodoro 30min trabajo / 30min pausa)
+- **Pausas**: 30min guitarra, 30min cena, siesta 03:00–06:00 (3h)
+- **Horas netas de código**: ~5h reales
+- **Avance**:
+  - ✅ Phase 2 Prompt Engineering COMPLETA (Task 2.1, 2.2, 2.3 + DoD cerrado)
+    - `src/prompt/prompt_builder.py` + 13 tests → 36 tests en verde, lint limpio
+  - ✅ Ajuste cronograma Opción B (+1h/día, Día 10 como recuperación, entrega 21/09 intacta)
+  - ✅ Nota B8 (objects/arrays) en `function_definition.py`
+  - ✅ Sección ARGPARSE en `TeoricNotes.md`
+  - ✅ `PERFIL_TRABAJO.md` creado (10 secciones, guardado en Engram)
+  - ✅ Recorrido de código: paradas 1-3 completas (`__main__.py`, `cli.py`, `pipeline.py`)
+- **Bloqueos**: Ninguno
+- **Estado frente al plan**: ✅ AL DÍA — sin desfasaje. Listo para Phase 3 (Día 11, Lun 09/07)
+
+---
+
+## 🎯 CHECKPOINTS
+
+### Checkpoint 1: 7 septiembre (Fin Semana 1)
+- [ ] Call Me Maybe: Phase 2-3 en progreso
+- [ ] Horas acumuladas: 20h
+- [ ] Commits: 5+
+
+### Checkpoint 2: 14 septiembre (Fin Fase 1)
+- [ ] Call Me Maybe: Completo
+- [ ] Horas acumuladas: 48h
+- [ ] Commits: 15+
+
+### Checkpoint 3: 21 septiembre (Fin Fase 2)
+- [ ] Flying: Completo
+- [ ] Horas acumuladas: 68h
+- [ ] Commits: 25+
+
+### Checkpoint 4: 29 septiembre (Fin Fase 3)
+- [ ] Codection: Completo
+- [ ] Horas acumuladas: 100h
+- [ ] Commits: 35+
+
+---
+
+## 🚨 ALERTAS Y ACCIONES
+
+### Si vas atrasado:
+1. Identificar causa raíz
+2. Evaluar si es bloqueador o optimizable
+3. Tomar decisión: acelerar o ajustar alcance
+4. Documentar lección aprendida
+
+### Si vas adelantado:
+1. No bajar la guardia
+2. Usar tiempo extra para pulir
+3. Considerar features bonus
+4. Documentar buenas prácticas
+
+---
+
+## 📝 NOTAS DE SESIÓN
+
+### 3 septiembre 2026
+- Se creó cronograma general para 3 proyectos
+- Call Me Maybe tiene Phase 1 completa
+- Flying y Codection sin empezar
+- Estrategia: secuencial (Call Me Maybe → Flying → Codection)
+
+### 4-5 septiembre 2026 (Jornada nocturna, Día 10)
+- **Hito**: Phase 2 cerrada — prompt_builder + 13 tests, 36 tests en verde, lint limpio
+- **Cronograma ajustado**: Opción B (+1h/día desde D10, entrega 21/09 intacta)
+- **Recorrido de código**: paradas 1-3 completas, retomar desde parada 4 (output.py)
+- **Metodología**: pomodoros 30/30 funcionaron, 5h hiperfoco con siesta 03-06
+- **Módulo más difícil**: Phase 3 (Decoder Core) arranca Día 11 (Lun 09/07)
+- **Engram**: perfil de trabajo guardado (topic `perfil/usuario-trabajo`), posición recorrido guardada (topic `recorrido/posicion`)
+
+---
+
+*Este archivo se actualiza al inicio de cada sesión de trabajo*
