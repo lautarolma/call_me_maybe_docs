@@ -8,17 +8,17 @@
 
 ## 📍 Posición actual del recorrido
 
-- **Archivo en análisis**: `src/models/output.py` (parada en curso)
+- **Próximo archivo en análisis**: `src/loader/input_loader.py` (parada 6)
 - **Progreso**:
   - [x] 1. `src/__main__.py`
   - [x] 2. `src/cli.py` (dudas resueltas: argparse -h/help, exit codes 0/1/2, Path vs str → ver TeoricNotes.md)
   - [x] 3. `src/pipeline.py`
-  - [ ] 4. `src/models/output.py`
-  - [ ] 5. `src/models/function_definition.py`
+  - [x] 4. `src/models/output.py` (encuadre "ficha de registro" de pydantic)
+  - [x] 5. `src/models/function_definition.py` (confirmada 2026-09-06)
   - [ ] 6. `src/loader/input_loader.py`
   - [ ] 7. `src/loader/function_loader.py`
   - [ ] 8. `src/loader/vocab_loader.py`
-  - [ ] 9. `src/prompt/prompt_builder.py` ← Phase 2 (hoy)
+  - [ ] 9. `src/prompt/prompt_builder.py` ← Phase 2
   - [ ] (opcional) Tests como referencia cruzada de cada capa
 
 ---
@@ -130,7 +130,39 @@ Remata con summary (len functions/prompts, vocab_size, buckets, output path) y `
 ---
 
 ### 5. `src/models/function_definition.py`
-*(pendiente)*
+
+**Qué hace**: modela la ENTRADA del sistema — las fichas con las que pydantic valida `functions_definition.json`. Define qué funciones existen y qué parámetros acepta cada una.
+
+**Cómo lo hace** — 4 piezas:
+1. `ParameterType = Literal["string", "number", "boolean", "null"]` — conjunto CERRADO de valores exactos (menú fijo). Distinto de `str`: si el JSON trae `"integer"` en vez de `"number"`, pydantic explota. Documenta + mypy estático + pydantic en runtime.
+2. `ParameterDef(BaseModel)` — ficha del parámetro: `name: str = Field(default="")` (ANDAMIO temporal, ver abajo) + `type: ParameterType` (obligatorio).
+3. `FunctionDef(BaseModel)` — ficha de la función: `name`, `description`, `parameters: dict[str, ParameterDef]` (validación recursiva, error con ruta exacta), `returns: dict[str, str]` (solo entrada, no valida salida).
+4. `_sync_parameter_names` — el validador que sincroniza `name` desde la key del dict padre.
+
+**El corazón: el validador** — PROLEMA: en `{"a": {"type":"number"}}` el nombre vive en la KEY del dict, no adentro. Pero el decoder (Phase 4/5) necesita cada `ParameterDef` saber su nombre sin contexto externo → hay que copiarlo adentro.
+
+```python
+@field_validator("parameters", mode="after")
+@classmethod
+def _sync_parameter_names(cls, params):
+    for key, param in params.items():
+        param.name = key
+    return params
+```
+
+Los 3 conceptos:
+- `@field_validator("parameters", ...)` — pydantic lo llama SOLO al construir un FunctionDef, nunca directo.
+- `mode="after"` — corre DESPUÉS de validar, recibe el dato YA tipado (objetos reales) → por eso podemos mutar `param.name`. (`mode="before"` recibiría el JSON crudo).
+- `@classmethod` — OBLIGATORIO en pydantic v2: el validador corre sobre la clase (cls), antes de que exista la instancia.
+
+Secuencia (el "andamio"): 1. Pydantic construye `ParameterDef(name="")` placeholder → 2. El validator pisa `name="a"` → 3. `ParameterDef(name="a", type="number")`. El validador corre DENTRO de la construcción → ningún consumidor ve el estado des-sincronizado (fail fast + consistencia). No hay estado intermedio visible.
+
+**Decisiones de diseño**:
+1. `name` con `default=""` (andamio) porque el JSON no trae el nombre adentro — el validador lo pisa después.
+2. `Literal` como menú fijo: valida runtime y documenta.
+3. Validación recursiva de pydantic: primero cada parámetro, después la función entera.
+
+**Gotchas**: `mode="after"` recibe datos ya tipados (permite mutar); `mode="before"` recibe crudo (pre-procesar). Todo esto es del M2 de NotebookLM (pydantic y modelos).
 
 ### 6. `src/loader/input_loader.py`
 *(pendiente)*

@@ -39,9 +39,9 @@
 
 **6 septiembre (Día 4)**
 - Horas trabajadas: __
-- Avance: __
-- Bloqueos: __
-- Notas: __
+- Avance: Recorrido de código — paradas 4-5 consolidadas (output.py + function_definition.py)
+- Bloqueos: Ninguno
+- Notas: Confirmada parada 5 (function_definition.py), listo para parada 6 (input_loader.py). Día buffer usado para consolidar M2 antes de Phase 3.
 
 **7 septiembre (Día 5)**
 - Horas trabajadas: __
@@ -124,6 +124,11 @@
 - **Metodología**: pomodoros 30/30 funcionaron, 5h hiperfoco con siesta 03-06
 - **Módulo más difícil**: Phase 3 (Decoder Core) arranca Día 11 (Lun 09/07)
 - **Engram**: perfil de trabajo guardado (topic `perfil/usuario-trabajo`), posición recorrido guardada (topic `recorrido/posicion`)
+
+### 6 septiembre 2026 (Día buffer, domingo)
+- **Recorrido de código**: paradas 4-5 CONSOLIDADAS — output.py (ficha de registro) + function_definition.py (Literal, ficha anidada, validador `mode="after"`, andamio de name). Parada 5 confirmada por el usuario.
+- **Estado frente al plan**: ✅ AL DÍA, sin desfasaje. Próximo archivo del recorrido: parada 6 (`src/loader/input_loader.py`).
+- **Próximo hito de implementación**: Phase 3 (Decoder Core) arranca Día 11 — Lunes 7 septiembre (Task 3.1, `state.py`).
 
 ---
 
