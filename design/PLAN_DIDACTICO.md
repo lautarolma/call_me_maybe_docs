@@ -619,18 +619,28 @@ import json
 from src.models.function_definition import FunctionDef
 
 def load_functions(path: Path) -> list[FunctionDef]:
-    """Carga y valida definiciones de funciones. Falla si hay nombres duplicados."""
+    """Carga y valida definiciones de funciones. Falla con listas vacías o nombres duplicados."""
     with open(path) as f:
         data = json.load(f)
 
-    # Convertir cada item a un modelo Pydantic — valida automáticamente
-    functions = [FunctionDef(**item) for item in data]
+    # Validación de forma ANTES de construir: array JSON NO vacío.
+    # Si dejamos pasar [], el pipeline seguiría con 0 funciones — falla
+    # asegurada contra el corrector (que compara el set de funciones).
+    if not isinstance(data, list) or len(data) == 0:
+        raise ValueError(f"Se esperaba una lista no vacía de definiciones de funciones en {path}")
 
-    # Chequear nombres duplicados
-    names = [fn.name for fn in functions]
-    dupes = [n for n in names if names.count(n) > 1]
-    if dupes:
-        raise ValueError(f"Funciones con nombres duplicados: {set(dupes)}")
+    # Una sola pasada: construye Y valida duplicados a la vez.
+    # `seen` es un set (hash table): consultar/insertar un nombre es O(1)
+    # → el loop completo queda O(n). Cortamos en la PRIMERA repetición
+    # (fail-fast real): no construimos los modelos que siguen al pedo.
+    seen: set[str] = set()
+    functions: list[FunctionDef] = []
+    for item in data:
+        fn = FunctionDef(**item)
+        if fn.name in seen:
+            raise ValueError(f"Función con nombre duplicado: {fn.name}")
+        seen.add(fn.name)
+        functions.append(fn)
 
     return functions
 ```
@@ -646,6 +656,10 @@ fn = FunctionDef(name="fn_add", description="Add", parameters={}, returns={})
 Cuando hacés `FunctionDef(**item)`, Pydantic valida que el dict tenga la estructura correcta. Si falta un campo o el tipo es incorrecto, lanza `ValidationError`.
 
 **¿Por qué chequeamos duplicados?** Porque nuestro decoder usa un **trie** (ver M7) para restringir los nombres de función. Si hay dos funciones con el mismo nombre, el trie no sabe cuál elegir. Además, es un error de datos que debemos detectar temprano.
+
+**¿Por qué un `set` en vez de `count()`?** La versión naive sería `[n for n in names if names.count(n) > 1]` — pero `count()` recorre TODA la lista por cada nombre → O(n²). Con un `set` (hash table), consultar un nombre es O(1) → el loop completo queda O(n). Y al detectar el duplicado DENTRO del loop, cortamos en la primera repetición sin construir el resto (fail-fast real).
+
+**¿Por qué rechazar `[]`?** Porque un JSON vacío significa "no hay funciones" — y el corrector compara el set de funciones que declaraste contra el que espera. Si dejamos pasar un array vacío, el pipeline corre y produce un set vacío: falla garantizada sin ningún error visible. Fijate que `input_loader` (más abajo) hace exactamente lo mismo con los prompts: validación de forma (lista no vacía) ANTES de validar contenido. Ambos loaders deben validar lo mismo (ver BUG-002 en BITACORA_BUGS.md).
 
 ## Cargador de prompts
 

@@ -57,6 +57,63 @@ Si podes usar estos decoradores en el proyecto: SI, pydantic ya es dependencia.
 
 ---
 
+## OPTIMIZACIÓN: ORDEN DE CONDICIONES Y CORTOCIRCUITO (del recorrido: src/loader/input_loader.py)
+
+> La lección de la línea 45 de input_loader.py: `not isinstance(data, list) or len(data) == 0`.
+> El ORDEN en que escribís las condiciones NO es cosmético — es optimización Y correctitud.
+
+### El mecanismo: short-circuit (cortocircuito) / evaluación perezosa
+Python evalúa booleanos con `and`/`or` de forma perezosa, de izquierda a derecha:
+- `A or B`  → evalúa A. Si A es truthy → **NUNCA evalúa B** (ya decidió).
+- `A and B` → evalúa A. Si A es falsy → **NUNCA evalúa B** (ya decidió).
+Si B no se evalúa, **no paga el costo de B**. Punto. Esa es toda la jugada.
+
+### La regla de oro: Barato Primero, Costoso Después
+Poné PRIMERO la condición más barata Y la que más frecuentemente corte.
+Jerarquía de costos (de barato a caro, órdenes de magnitud):
+
+| Costo | Operación | Nota |
+|---|---|---|
+| ~ns (CPU pura) | `isinstance`, `is None`, comparaciones simples | no toca memoria externa |
+| ~ns | lookup en dict / acceso a atributo | O(1), hash table |
+| O(1) u O(n) | `len()` | O(1) en list/str/dict; NO existe en generadores/iteradores (TypeError) |
+| ~ns-µs | iteración / construcción de estructuras | O(n) sobre los datos |
+| **µs-ms** | **syscalls / I/O** (open, read, os.path.exists, network, procesos) | context switch, disco/red: LO MÁS CARO por lejos |
+
+Un `isinstance` no es solo "más barato que un len": es que **no requiere que el objeto
+tenga nada** — un len sobre algo sin `__len__` se cae con TypeError. El orden correcto
+PROTEGE la operación de después.
+
+### Dos categorías (el matiz importante)
+1. **CORTOCIRCUITO POR CORRECCIÓN (guard / guarding)**: la 2ª condición SOLO tiene
+   sentido si la 1ª vale. No es optimización: sin el orden, CRASH.
+   `isinstance(x, list) and x[0]` — x[0] rompería si x no es lista.
+   `data and len(data)` — len rompería si data no tiene __len__.
+   Aplicado en el proyecto: `not isinstance(data, list) or len(data) == 0`.
+   Si isinstance falla → `len(data)` NUNCA se ejecuta → no TypeError sobre un dict.
+2. **CORTOCIRCUITO POR RENDIMIENTO**: ambas condiciones valen solas, pero ponés
+   primero la más barata y la que más corta → en el caso común pagás solo UNA.
+   `user is not None and user.is_admin and fetch_permisos(user)` — la syscall de
+   fetch_permisos solo corre si el usuario existe Y es admin. Orden invertido =
+   I/O innecesaria AUNQUE el user sea None.
+
+Regla práctica: **las condiciones que NO acceden a I/O y que cortan seguido, VAN
+PRIMERO.** El caso de rendimiento clásico: validar formato del input en memoria ANTES
+de tocar disco (`or` para fallar temprano, `and` para avanzar solo si todo va bien).
+
+### El gotcha fino: and/or NO devuelven bool, devuelven el OPERANDO
+`[] or "default"`  → `"default"` (el 1er falsy decide → devuelve el 2º)
+`"x" and 42`       → `42` (el 1er truthy queda → devuelve el 2º)
+`0 or "" or "ok"`  → `"ok"` (el último operando evaluado gana)
+Si necesitás un bool de verdad: `bool(expresion)`.
+
+### Analogía de obra
+Es el encargado que revisa que el PLANO EXISTA (isinstance, gratis) antes de mandar a
+traer el MATERIAL (len/I/O, caro). Si el plano no existe, ni llamás al camión. Y si el
+plano está, recién ahí contás cuántos ladrillos hay. Nunca al revés.
+
+---
+
 ## ARGPARSE (del recorrido: src/cli.py)
 
 ### La idea central: es un REGISTRO declarativo
@@ -182,4 +239,58 @@ porque no entrenás.
   no mi día a día.
 - Con saber "el modelo viene afinado y yo solo lo uso" + "requires_grad=False = no
   voy a entrenar, ahorro costos", tengo lo que necesito.
+
+---
+
+## COUNTER, SET Y FAIL-FAST: COMPLEJIDAD EN LA DETECCIÓN DE DUPLICADOS (del recorrido: src/loader/function_loader.py — BUG-002)
+
+### El problema: duplicados en una lista de nombres
+Detectar nombres repetidos es un clásico. La versión naive que teníamos:
+
+    names = [fn.name for fn in functions]
+    dupes = [n for n in names if names.count(n) > 1]
+
+`names.count(n)` recorre la lista COMPLETA por cada n → **O(n²)**.
+Para 10 funciones es irrelevante; para 100.000 es un desastre.
+Regla mental: OJO con `count()` / `index()` / `in` dentro de un loop sobre la MISMA lista.
+
+### Las herramientas de la stdlib (misma idea, distinto sabor)
+- **`set`**: estructura de hash table: consultar/insertar es O(1). Un loop con
+  `seen.add()` y `n in seen` queda O(n) total. Ideal para "¿ya lo vi?" (cortar en el 1°).
+- **`collections.Counter`**: cuenta apariciones en UNA pasada (O(n)) y devuelve
+  `{elemento: cantidad}`. Ideal para "cuántas veces aparece cada cosa" — NO corta
+  en el primero, porque quiere el conteo completo.
+- **`collections.defaultdict(int)`**: el "Counter manual"; útil cuando además
+  necesitás acumular OTRA cosa por clave (p.ej. listas de items por nombre).
+
+### La decisión del proyecto (function_loader.py — Opción A, BUG-002)
+Un solo loop que construye Y valida (fail-fast real):
+
+    seen: set[str] = set()
+    functions: list[FunctionDef] = []
+    for item in data:
+        fn = FunctionDef(**item)          # pydantic valida el item
+        if fn.name in seen:               # O(1) — ¿ya lo vimos?
+            raise ValueError(...)         # cortamos en la PRIMERA reincidencia
+        seen.add(fn.name)
+        functions.append(fn)
+
+Ventajas:
+- O(n) total (set = hash table).
+- Fail-fast REAL: corta la ejecución INMEDIATAMENTE, sin construir los modelos
+  que siguen (la versión vieja construía TODO y recién después contaba).
+- El mensaje es el primer repeat (singular), no la lista de todos los duplicados.
+
+### La asimetría detectada (el bug de diseño)
+`input_loader.load_prompts` validaba "lista no vacía" (`len(data) == 0 → error`)
+pero `function_loader.load_functions` NO: un `functions_definition.json` con `[]`
+pasaba en silencio → pipeline con 0 funciones → fallo asegurado contra el corrector
+(compara el SET de funciones declaradas vs esperadas).
+Lección: **loaders hermanos deben validar LA MISMA forma**; la validación de
+"no vacío" es contrato del loader, no un lujo. (La spec de diseño tenía la
+asimetría documentada — otro motivo para revisar specs hermanas cuando un defecto
+aparece en una capa.)
+
+**En una línea:** si tu detector de duplicados usa `count()` dentro de un loop,
+es O(n²); un `set` lo deja O(n) y te da fail-fast gratis.
 

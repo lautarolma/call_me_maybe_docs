@@ -1,7 +1,7 @@
 # PROGRESS_TRACKER.md
 ## Tracking de Avance - Escuela 42
 
-### Última Actualización: 5 septiembre 2026
+### Última Actualización: 9 septiembre 2026
 
 ---
 
@@ -45,9 +45,9 @@
 
 **7 septiembre (Día 5)**
 - Horas trabajadas: __
-- Avance: __
-- Bloqueos: __
-- Notas: __
+- Avance: Recorrido de código — parada 6 confirmada (input_loader.py, short-circuit de condiciones)
+- Bloqueos: Ninguno
+- Notas: Listo para parada 7 (function_loader.py)
 
 ---
 
@@ -129,6 +129,14 @@
 - **Recorrido de código**: paradas 4-5 CONSOLIDADAS — output.py (ficha de registro) + function_definition.py (Literal, ficha anidada, validador `mode="after"`, andamio de name). Parada 5 confirmada por el usuario.
 - **Estado frente al plan**: ✅ AL DÍA, sin desfasaje. Próximo archivo del recorrido: parada 6 (`src/loader/input_loader.py`).
 - **Próximo hito de implementación**: Phase 3 (Decoder Core) arranca Día 11 — Lunes 7 septiembre (Task 3.1, `state.py`).
+
+### 8-9 septiembre 2026 (retomado tras suspensión + error "certificate is not yet valid" por reloj desincronizado)
+- **Recorrido**: parada 7 CONFIRMADA (`function_loader.py`) — con hallazgo y corrección de BUG-002:
+  - Asimetría detectada: `input_loader` validaba lista vacía, `function_loader` no → `[]` pasaba en silencio (0 funciones = falla asegurada contra el corrector)
+  - Duplicados O(n²) con `names.count()` → fail-fast O(n) con `set` en una sola pasada
+  - Decisión: Opción A (rechazo duro) aprobada por el usuario → 37 tests en verde (+1 nuevo), flake8 + mypy limpios, E2E OK
+  - Doc actualizada: BITACORA_BUGS (BUG-002), PLAN_IMPLEMENTACION (Task 1.8), PLAN_DIDACTICO (sección cargador), TeoricNotes (sección Counter/set/fail-fast), RECORRIDO (parada 7)
+- **Estado frente al plan**: ✅ AL DÍA. Próxima parada del recorrido: 8 (`src/loader/vocab_loader.py`). Phase 3 (Decoder Core) sigue siendo el próximo hito de implementación.
 
 ---
 

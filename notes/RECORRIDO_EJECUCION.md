@@ -8,15 +8,15 @@
 
 ## 📍 Posición actual del recorrido
 
-- **Próximo archivo en análisis**: `src/loader/input_loader.py` (parada 6)
+- **Próximo archivo en análisis**: `src/loader/vocab_loader.py` (parada 8)
 - **Progreso**:
   - [x] 1. `src/__main__.py`
   - [x] 2. `src/cli.py` (dudas resueltas: argparse -h/help, exit codes 0/1/2, Path vs str → ver TeoricNotes.md)
   - [x] 3. `src/pipeline.py`
   - [x] 4. `src/models/output.py` (encuadre "ficha de registro" de pydantic)
   - [x] 5. `src/models/function_definition.py` (confirmada 2026-09-06)
-  - [ ] 6. `src/loader/input_loader.py`
-  - [ ] 7. `src/loader/function_loader.py`
+  - [x] 6. `src/loader/input_loader.py` (confirmada 2026-09-07; short-circuit/orden de condiciones → ver TeoricNotes.md)
+  - [x] 7. `src/loader/function_loader.py` (confirmada 2026-09-08; asimetría con input_loader → BUG-002, ver BITACORA_BUGS.md)
   - [ ] 8. `src/loader/vocab_loader.py`
   - [ ] 9. `src/prompt/prompt_builder.py` ← Phase 2
   - [ ] (opcional) Tests como referencia cruzada de cada capa
@@ -168,7 +168,23 @@ Secuencia (el "andamio"): 1. Pydantic construye `ParameterDef(name="")` placehol
 *(pendiente)*
 
 ### 7. `src/loader/function_loader.py`
-*(pendiente)*
+
+**Qué hace**: carga `functions_definition.json` → lista de fichas validadas (`list[FunctionDef]`). Es el loader de la ENTRADA de funciones — define el set que el decoder restringido va a poder emitir (Phase 4).
+
+**Cómo lo hace**:
+- JSON file → `json.load` → lista de dicts crudos.
+- **Validación de forma ANTES de contenido**: `isinstance(data, list) and len(data) > 0` → si no, `ValueError` con el path (fail fast). Cierra la asimetría con `input_loader` (que ya validaba no-vacío) — ver BUG-002 en BITACORA_BUGS.md.
+- **Una sola pasada** construye Y valida:
+  - `FunctionDef(**item)`: pydantic valida cada campo contra sus anotaciones (tipos, Literal, requeridos) → `pydantic.ValidationError` (subclase de ValueError) cumple el contrato sin código extra.
+  - `seen: set[str]`: consultar/insertar un nombre es O(1) (hash table). Duplicado → `ValueError` inmediato, sin construir los modelos restantes.
+
+**Decisiones de diseño**:
+1. **Opción A (rechazo duro)** para lista vacía: `ValueError` claro en vez de dejar pasar `[]` en silencio. Un array vacío = 0 funciones = fallo asegurado contra el corrector ("different function sets"). Descartada la opción B (log + seguir): para datos de entrada, el silencio no es una opción.
+2. **Fail-fast integrado**: detectar el duplicado DENTRO del loop (primera reincidencia) en vez de construir todo y contar después. El mensaje es singular (el primer repeat), no la lista ordenada de todos.
+3. **O(n) con `set` en vez de O(n²) con `names.count()`**: la versión anterior recorría la lista entera por cada nombre. Para ~10 funciones daba igual; es una decisión de forma para que el patrón no se copie a futuros loaders con datasets grandes (ver TeoricNotes.md → Counter/set/fail-fast).
+4. **Todo se traduce a `ValueError`**: el caller (pipeline) atrapa UNA excepción. Exception chaining `from exc` para JSONDecodeError/FileNotFoundError.
+
+**Gotchas**: el mensaje de duplicados cambió de plural a singular (fail-fast) → el test `test_duplicate_names_raise` se actualizó al nuevo match. La lista vacía tiene test propio nuevo (`test_empty_list_raises`). El plan de implementación (Task 1.8) y el didáctico documentaban el patrón O(n²) sin validación — se actualizaron en el mismo cambio para no contradecir el código.
 
 ### 8. `src/loader/vocab_loader.py`
 *(pendiente)*
@@ -180,7 +196,7 @@ Secuencia (el "andamio"): 1. Pydantic construye `ParameterDef(name="")` placehol
 
 ## ⚠️ Gotchas y decisiones registradas (acumulan durante el recorrido)
 
-- *(vacío por ahora — se llena en cada parada)*
+- **Asimetría de validación entre loaders hermanos** (BUG-002, 2026-09-08): `input_loader` rechazaba `[]` y `function_loader` no → se unificó con Opción A (rechazo duro) + duplicados fail-fast O(n) con `set`. La spec (PLAN_IMPLEMENTACION Task 1.8) documentaba el patrón viejo; se actualizó en el mismo cambio (doc ↔ código no se contradicen).
 
 ---
 

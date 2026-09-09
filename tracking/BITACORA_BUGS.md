@@ -166,4 +166,119 @@ solo `src/`).
 
 ---
 
+## BUG-002: `function_loader` sin validación de lista vacía y duplicados O(n²)
+
+- **Fecha de detección**: 2026-09-08 (recorrido de código, parada 7)
+- **Severidad**: MEDIA (no rompía el pipeline existente, pero dejaba un hueco de validación frente al corrector y un algoritmo cuadrático innecesario)
+- **Estado**: ✅ RESUELTO
+- **Archivos afectados**:
+  - `src/loader/function_loader.py` (corregido)
+  - `tests/test_loader.py` (test de duplicados actualizado + `test_empty_list_raises` nuevo)
+  - `docs/design/PLAN_IMPLEMENTACION.md` (Task 1.8 actualizada)
+  - `docs/design/PLAN_DIDACTICO.md` (sección "Cargador de funciones" actualizada)
+
+### Síntoma
+
+`function_loader.py` tenía DOS defectos de diseño frente a su loader hermano `input_loader.py`:
+
+1. **Asimetría de validación de forma**: `load_prompts` rechazaba listas vacías
+   (`if not isinstance(data, list) or len(data) == 0`), pero `load_functions` solo
+   validaba `isinstance(data, list)`. Un `functions_definition.json` con `[]` pasaba
+   **silenciosamente** → el pipeline seguía con **0 funciones**. El corrector compara
+   el set de funciones declaradas contra el esperado ("different function sets") →
+   un array vacío era falla garantizada sin ningún error de nuestro lado.
+
+2. **Detección de duplicados O(n²) y sin fail-fast real**:
+
+```python
+# ANTES — construye todo, recorre la lista por CADA nombre
+functions = [FunctionDef(**item) for item in data]
+names = [fn.name for fn in functions]
+duplicates = sorted({name for name in names if names.count(name) > 1})
+if duplicates:
+    raise ValueError(f"Duplicate function names: {duplicates}")
+```
+
+`names.count(name)` recorre la lista COMPLETA por cada nombre → O(n²). Además, el
+error se detectaba DESPUÉS de construir todos los modelos (trabajo desperdiciado) y
+el mensaje listaba todos los duplicados ordenados en vez de cortar en el primero.
+
+### Análisis de causa raíz
+
+**El defecto está en la SPEC, no solo en el código**: `PLAN_IMPLEMENTACION.md`
+Task 1.8 especificaba exactamente ese patrón (O(n²) con `count()`, sin check de
+vacío), mientras que la Task 1.7 (`input_loader`, su hermana) SÍ especificaba
+`Expected non-empty list`. Dos specs hermanas con criterios de validación distintos
+→ el ejecutor replicó cada spec fielmente y la asimetría quedó documentada en el
+propio plan. `PLAN_DIDACTICO.md` replicó lo mismo: la sección de prompts muestra la
+validación de vacío y la de funciones no la muestra.
+
+#### Atribución de autoría
+
+| Documento | Subagente | Rol |
+|-----------|-----------|-----|
+| `PLAN_IMPLEMENTACION.md` Task 1.8 | lama-design | Diseñó el patrón con la asimetría |
+| `PLAN_DIDACTICO.md` sección cargadores | lama-onboard | Replicó la asimetría del plan |
+
+**Conclusión**: defecto de DISEÑO (spec asimétrica entre Tasks 1.7 y 1.8), no de
+ejecución. El recorrido de código (parada 7) cumplió su rol: al comparar capas
+hermanas, detectó la incoherencia.
+
+### Resolución
+
+Decisión del operador (2026-09-08): **Opción A — rechazo duro + validación
+integrada fail-fast**, una sola pasada, O(n):
+
+```python
+# DESPUÉS — valida forma + construye + detecta duplicados en UNA pasada
+if not isinstance(data, list) or len(data) == 0:
+    raise ValueError(f"Expected a non-empty JSON array of function definitions in {path}")
+
+seen: set[str] = set()
+functions: list[FunctionDef] = []
+for item in data:
+    fn = FunctionDef(**item)
+    if fn.name in seen:
+        raise ValueError(f"Duplicate function name: {fn.name}")
+    seen.add(fn.name)
+    functions.append(fn)
+return functions
+```
+
+Cambios concretos:
+1. **Lista vacía → `ValueError` claro** con el path (misma semántica que `input_loader`).
+2. **Duplicados dentro del loop**: `set` (hash table) → consultar/insertar es O(1), total O(n).
+3. **Fail-fast real**: corta en la PRIMERA reincidencia, sin construir los modelos restantes.
+4. **Mensaje singular** (primer duplicado encontrado) en vez de la lista ordenada de todos.
+5. El contrato no cambia: todo sigue siendo `ValueError` para el caller (`pipeline`/`__main__`).
+
+### Verificación
+
+- [x] `uv run pytest tests/ -v` → **37 passed** (36 previos + `test_empty_list_raises` nuevo)
+- [x] Test de duplicados actualizado al nuevo mensaje (singular)
+- [x] `flake8 .` limpio
+- [x] `mypy .` con los 5 flags del subject → limpio
+- [x] E2E: carga real de las 5 funciones + rechazo real de `[]` con el mensaje correcto
+
+### Lecciones aprendidas
+
+1. **Loaders hermanos deben validar lo mismo**: si `input_loader` rechaza vacío y
+   `function_loader` no, el pipeline acepta JSON sin sentido (0 funciones) y el
+   corrector lo cuenta como set inválido. La validación de forma (no vacío) es
+   CONTRATO del loader, no lujo.
+2. **`list.count()` dentro de un loop es O(n²)**: recorre la lista entera por cada
+   nombre. Para decenas de funciones es irrelevante; para miles, cuadrático. El
+   `set` da O(1) por operación → O(n) total. (→ TeoricNotes.md, sección Counter.)
+3. **Fail-fast real = cortar durante la construcción**: detectar el duplicado
+   MIENTRAS construís evita trabajo desperdiciado; detectarlo al final construye
+   todo para nada.
+4. **Las specs hermanas se copian entre sí**: cuando una Task define un patrón y su
+   hermana otro distinto, el código resultante replica la inconsistencia. Al
+   detectar un defecto, revisar la spec hermana — el bug suele estar documentado.
+5. **Actualizar la doc que muestra el código viejo**: `PLAN_IMPLEMENTACION.md` y
+   `PLAN_DIDACTICO.md` mostraban el patrón obsoleto; se actualizaron en el mismo
+   cambio para no dejar doc que contradiga la decisión (pedido explícito del operador).
+
+---
+
 <!-- Próximos bugs se agregan acá abajo con el mismo formato -->

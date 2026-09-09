@@ -1067,17 +1067,26 @@ Phase 7 (Bonus — ANNEX ONLY)
   from src.models.function_definition import FunctionDef
 
   def load_functions(path: Path) -> list[FunctionDef]:
-      """Load and validate function definitions. Raises on duplicate names."""
+      """Load and validate function definitions. Raises on empty arrays or duplicate names."""
       with open(path) as f:
           data = json.load(f)
-      functions = [FunctionDef(**item) for item in data]
-      names = [fn.name for fn in functions]
-      dupes = [n for n in names if names.count(n) > 1]
-      if dupes:
-          raise ValueError(f"Duplicate function names: {set(dupes)}")
+      # Rechazo duro de forma: array JSON NO vacío
+      # (asimetría con Task 1.7 cerrada — ver BUG-002 en BITACORA_BUGS.md)
+      if not isinstance(data, list) or len(data) == 0:
+          raise ValueError(f"Expected a non-empty JSON array of function definitions in {path}")
+      # Una pasada O(n): construye + detecta duplicados fail-fast
+      # (set = hash table, consultar/insertar es O(1) por nombre)
+      seen: set[str] = set()
+      functions: list[FunctionDef] = []
+      for item in data:
+          fn = FunctionDef(**item)
+          if fn.name in seen:
+              raise ValueError(f"Duplicate function name: {fn.name}")
+          seen.add(fn.name)
+          functions.append(fn)
       return functions
   ```
-- **Acceptance criteria**: carga las 5 funciones; nombres duplicados → ValueError
+- **Acceptance criteria**: carga las 5 funciones; array vacío → ValueError; nombres duplicados → ValueError
 - **Dependencies**: Task 1.6
 
 #### Task 1.9: Vocab loader
