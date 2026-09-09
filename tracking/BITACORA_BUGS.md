@@ -281,4 +281,35 @@ Cambios concretos:
 
 ---
 
+## BUG-003: `vocab_loader` — la spec enseñaba un approach que NO decodifica (doc ↔ código divergentes)
+
+- **Fecha de detección**: 2026-09-09 (recorrido de código, parada 8 — análisis cruzado de dos sesiones)
+- **Severidad**: MEDIA (no rompía runtime: el código real es CORRECTO; la DOC era la que enseñaba un approach que no funciona → riesgo de copia futura y de modelado mental erróneo)
+- **Estado**: ✅ RESUELTO (doc actualizada)
+- **Archivos afectados**:
+  - `docs/design/PLAN_IMPLEMENTACION.md` (Task 1.9 reescrita con el approach real)
+  - `docs/design/PLAN_DIDACTICO.md` (sección "Cargador de vocabulario": código + explicación corregidas)
+  - `docs/notes/TeoricNotes.md` (sección nueva "Byte-level BPE y roundtrip identidad")
+  - `docs/notes/RECORRIDO_EJECUCION.md` (parada 8 documentada, EN REVISIÓN)
+  - `docs/tracking/PROGRESS_TRACKER.md` (nota de sesión 09/09)
+- **Síntoma**: la spec (Task 1.9 línea ~1121 y PLAN_DIDACTICO línea ~725) proponía decodificar con `token_text.encode('utf-8').decode('utf-8')`; el código real usa `model.decode([token_id])`. Dos análisis de la misma parada llegaron a conclusiones que parecían contradictorias.
+- **Análisis causa raíz**:
+  1. El vocab.json guarda tokens maquillados por la **byte-to-unicode table** (cada byte 0-255 → carácter "visible"; el espacio 0x20 se guarda como `Ġ`). El texto real solo se obtiene con la tabla inversa, que aplica el TOKENIZER.
+  2. `token_text.encode('utf-8').decode('utf-8')` en Python es un **roundtrip identidad** para strings unicode válidos: `'Ġthe'` sale `'Ġthe'` → el índice quedaría agrupado por caracteres-mapeados → inservible para el decoder que busca por texto real (`' the'` → `tokens_starting_with[" "]`).
+  3. Las excepciones que atrapaba la spec (`UnicodeDecodeError`, `IndexError`) eran casi código muerto: `encode('utf-8')` no falla para strings unicode válidos.
+  4. La explicación del didáctico ("bytes UTF-8 incompletos") confundía el modelo mental: el vocab ya viene en texto mapeado, no con bytes sueltos.
+  5. El ejecutor implementó el approach correcto sin actualizar la doc → divergencia doc ↔ código (espejo inverso de BUG-002: allá el código era PEOR que la spec; acá el código es MEJOR).
+- **Desmentido de afirmación errónea**: circuló que "vocab_loader no tiene test unitario / necesita el modelo real (~2.4GB)". **FALSO**: `TestLoadVocab` con `FakeModel` existe en `tests/test_loader.py` (L95-125) y pasa (`test_builds_preindexed_structures`, 5 tokens simulados). Verificar claims de sesiones contra el código antes de repetirlos.
+- **Resolución**: doc actualizada al approach real — `model.decode([token_id])`, `id2decoded`, `BYTE_CATEGORY = "<byte>"`, `@dataclass(slots=True)`, índice por primer carácter DECODIFICADO.
+- **Verificación**: solo docs modificados (código intacto) → 37 tests siguen en verde, flake8 + mypy limpios.
+
+### Lecciones aprendidas
+
+1. **Doc ↔ código divergen en dos direcciones**: BUG-002 (código peor que spec, faltaba validación) y BUG-003 (código MEJOR que spec, la doc enseñaba decodificación falsa). Al analizar una implementación, SIEMPRE contrastarla con su spec — el análisis "por dentro" del código no alcanza.
+2. **La decodificación de BPE se hace con el TOKENIZER, no con Python**: `model.decode` aplica la tabla inversa byte-to-unicode; `str.encode().decode()` es un roundtrip identidad que no decodifica nada.
+3. **El `Ġ` no es una letra rara, es un espacio disfrazado**: el vocab muestra tokens maquillados; `'Ġthe'` decodificado es `' the'`.
+4. **Verificar afirmaciones de sesiones de IA contra el código**: "no tiene test unitario" era verificablemente falso en 30 segundos (`tests/test_loader.py` L95-125). Un claim categórico y falso merece corrección explícita en la doc.
+
+---
+
 <!-- Próximos bugs se agregan acá abajo con el mismo formato -->

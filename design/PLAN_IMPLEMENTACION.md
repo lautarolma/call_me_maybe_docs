@@ -1091,48 +1091,57 @@ Phase 7 (Bonus — ANNEX ONLY)
 
 #### Task 1.9: Vocab loader
 - **Archivo**: `src/loader/vocab_loader.py`
-- **Implementar**:
+- **Implementar** (approach REAL implementado — corrige la spec original, ver BUG-003):
   ```python
   import json
-  from dataclasses import dataclass, field
-  from llm_sdk.llm_sdk import Small_LLM_Model
+  from dataclasses import dataclass
+  from llm_sdk import Small_LLM_Model
 
-  @dataclass
+  BYTE_CATEGORY = "<byte>"
+
+  @dataclass(slots=True)
   class Vocab:
-      token2id: dict[str, int]
-      id2token: dict[int, str]
-      tokens_starting_with: dict[str, set[int]]  # char → set of token ids
+      token2id: dict[str, int]                  # token_text -> token_id (texto CRUDO)
+      id2token: dict[int, str]                  # token_id -> token_text (texto CRUDO)
+      id2decoded: dict[int, str]                # token_id -> texto DECODIFICADO
+      tokens_starting_with: dict[str, set[int]] # 1er carácter DECODIFICADO -> set de ids
       vocab_size: int
 
   def load_vocab(model: Small_LLM_Model) -> Vocab:
-      """Load vocabulary from model and build pre-indexed structures."""
+      """Load vocabulary and build pre-indexed structures."""
       vocab_path = model.get_path_to_vocab_file()
-      with open(vocab_path) as f:
-          raw_vocab = json.load(f)
+      with open(vocab_path, encoding="utf-8") as f:
+          raw_vocab: dict[str, int] = json.load(f)
 
       token2id = raw_vocab  # {token_text: token_id}
-      id2token = {v: k for k, v in token2id.items()}
+      id2token = {token_id: token_text for token_text, token_id in token2id.items()}
 
-      # Pre-index by first decoded character
+      id2decoded: dict[int, str] = {}
       tokens_starting_with: dict[str, set[int]] = {}
       for token_text, token_id in token2id.items():
-          # Handle bytes-level BPE tokens
           try:
-              decoded = token_text.encode('utf-8').decode('utf-8')
-              first_char = decoded[0] if decoded else ""
-          except (UnicodeDecodeError, IndexError):
-              first_char = "<byte>"
+              decoded = model.decode([token_id])  # tokenizer REAL (deshace byte-to-unicode)
+          except Exception:
+              decoded = ""
+          if not decoded:
+              # Especiales (<|endoftext|>) o indecodificables -> bucket <byte>
+              tokens_starting_with.setdefault(BYTE_CATEGORY, set()).add(token_id)
+              continue
+          first_char = decoded[0]
+          id2decoded[token_id] = decoded
           tokens_starting_with.setdefault(first_char, set()).add(token_id)
 
       return Vocab(
           token2id=token2id,
           id2token=id2token,
+          id2decoded=id2decoded,
           tokens_starting_with=tokens_starting_with,
           vocab_size=len(token2id),
       )
   ```
-- **Acceptance criteria**: vocab loadea 151K+ tokens; tokens_starting_with tiene entries; tokens bytes no crashean
+- **Acceptance criteria**: vocab loadea 151K+ tokens; tokens_starting_with indexado por 1er carácter DECODIFICADO; especiales/indecodificables van a BYTE_CATEGORY; test unitario con FakeModel (`TestLoadVocab`)
 - **Dependencies**: Task 1.1
+- **Nota**: la spec original usaba `token_text.encode('utf-8').decode('utf-8')` — roundtrip identidad que NO deshace la byte-to-unicode table → índice inservible. Corregido en BUG-003 (ver BITACORA_BUGS.md).
 
 #### Task 1.10: Pipeline skeleton
 - **Archivo**: `src/pipeline.py`

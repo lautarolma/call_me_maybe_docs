@@ -8,7 +8,8 @@
 
 ## 📍 Posición actual del recorrido
 
-- **Próximo archivo en análisis**: `src/loader/vocab_loader.py` (parada 8)
+- **Parada 8 EN REVISIÓN**: `src/loader/vocab_loader.py` — presentada y documentada (BUG-003), pero **pendiente de re-explicación** (usuario desorientado con unicode/decodificación, 2026-09-09 noche). **Retomar acá.**
+- **Próximo archivo en análisis (tras confirmar la 8)**: `src/prompt/prompt_builder.py` (parada 9, ← Phase 2)
 - **Progreso**:
   - [x] 1. `src/__main__.py`
   - [x] 2. `src/cli.py` (dudas resueltas: argparse -h/help, exit codes 0/1/2, Path vs str → ver TeoricNotes.md)
@@ -187,7 +188,27 @@ Secuencia (el "andamio"): 1. Pydantic construye `ParameterDef(name="")` placehol
 **Gotchas**: el mensaje de duplicados cambió de plural a singular (fail-fast) → el test `test_duplicate_names_raise` se actualizó al nuevo match. La lista vacía tiene test propio nuevo (`test_empty_list_raises`). El plan de implementación (Task 1.8) y el didáctico documentaban el patrón O(n²) sin validación — se actualizaron en el mismo cambio para no contradecir el código.
 
 ### 8. `src/loader/vocab_loader.py`
-*(pendiente)*
+
+**Estado: 🔴 EN REVISIÓN — presentada 2026-09-09, PENDIENTE de re-explicación.** El usuario terminó la sesión desorientado con unicode/decodificación (disonancias entre dos análisis). Retomar con: byte-to-unicode table, `'Ġ'` = espacio byte-encodeado, por qué `model.decode()` y NO `encode+decode` de Python (roundtrip identidad), y por qué el índice usa el 1er carácter DECODIFICADO. Material: TeoricNotes.md → "Byte-level BPE", BUG-003 en BITACORA_BUGS.md.
+
+**Qué hace** (sin testear, sin modificar — análisis 2026-09-09):
+1. Abre el `vocab.json` del modelo via `model.get_path_to_vocab_file()` → `{token_text: token_id}` (151K+ tokens).
+2. Construye `id2token` invirtiendo el dict.
+3. Por cada token, decodifica con el tokenizer REAL (`model.decode([token_id])`) → corrige byte-to-unicode table.
+4. Indexa el token por el PRIMER carácter del texto **decodificado** (`tokens_starting_with[first_char]`) → `dict[str, set[int]]`, O(1) de membership.
+5. Si decodifica a nada o falla (especial `<|endoftext|>`, textos fallidos) → bucket `BYTE_CATEGORY = "<byte>"`.
+6. Guarda además `id2decoded` (vista decodificada completa) — la spec original NO la tenía.
+7. Un solo pase: O(V) tokens × O(D) decodificación = pago único upfront; toda consulta posterior es O(1) en slots RAM.
+
+**Decisiones de diseño**:
+1. `@dataclass(slots=True)` → sin `__dict__` por instancia → ~menos RAM con 151K+ tokens.
+2. Índice agrupado por primer char DECODIFICADO: el decoder filtra candidatos por el primer carácter del texto REAL que viene del modelo, no del token crudo.
+3. `setdefault` idiom para el bucket inicial sin `if/else` ruidoso.
+4. Un solo `die` de carga: si llama `decode()` con `[token_id]` (lista), NO con `token_id` suelto — la API del SDK espera lista.
+
+**Gotchas**: los tokens del vocab JSON guardan caracteres byte-mapeados (ej: `'Ġthe'`), no el texto real. `model.decode` los convierte a texto real (`' the'`). 🔴 HALLazGO BUG-003: la spec (Task 1.9 + didáctico) enseñaba `token_text.encode('utf-8').decode('utf-8')` — roundtrip identidad que NO deshace la tabla → índice inservible. Doc actualizada al approach real (ver BITACORA_BUGS.md → BUG-003).
+
+**Tests**: `TestLoadVocab` con `FakeModel` (tests/test_loader.py L95-125) — NO necesita el modelo real. `test_builds_preindexed_structures` verifica tamaño 5, `token2id["{"]==0`, `id2token[2]=="Ġworld"`, `id2decoded[2]==" world"`, `2 in tokens_starting_with[" "]`, `4 in tokens_starting_with["<byte>"]`.
 
 ### 9. `src/prompt/prompt_builder.py`
 *(pendiente)*
@@ -197,6 +218,7 @@ Secuencia (el "andamio"): 1. Pydantic construye `ParameterDef(name="")` placehol
 ## ⚠️ Gotchas y decisiones registradas (acumulan durante el recorrido)
 
 - **Asimetría de validación entre loaders hermanos** (BUG-002, 2026-09-08): `input_loader` rechazaba `[]` y `function_loader` no → se unificó con Opción A (rechazo duro) + duplicados fail-fast O(n) con `set`. La spec (PLAN_IMPLEMENTACION Task 1.8) documentaba el patrón viejo; se actualizó en el mismo cambio (doc ↔ código no se contradicen).
+- **Doc ↔ código divergentes en vocab_loader** (BUG-003, 2026-09-09): la spec (Task 1.9 + didáctico) enseñaba `encode('utf-8').decode('utf-8')` — roundtrip identidad que NO deshace la byte-to-unicode table → índice por 'Ġ' inservible; el código real usa `model.decode([token_id])`. Doc actualizada al approach real. Además: circuló "sin test unitario" — FALSO (`TestLoadVocab` con FakeModel, tests/test_loader.py L95-125). Parada 8 queda EN REVISIÓN hasta re-explicar unicode/decode al usuario.
 
 ---
 

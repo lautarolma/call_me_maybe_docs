@@ -136,7 +136,15 @@
   - Duplicados O(n²) con `names.count()` → fail-fast O(n) con `set` en una sola pasada
   - Decisión: Opción A (rechazo duro) aprobada por el usuario → 37 tests en verde (+1 nuevo), flake8 + mypy limpios, E2E OK
   - Doc actualizada: BITACORA_BUGS (BUG-002), PLAN_IMPLEMENTACION (Task 1.8), PLAN_DIDACTICO (sección cargador), TeoricNotes (sección Counter/set/fail-fast), RECORRIDO (parada 7)
-- **Estado frente al plan**: ✅ AL DÍA. Próxima parada del recorrido: 8 (`src/loader/vocab_loader.py`). Phase 3 (Decoder Core) sigue siendo el próximo hito de implementación.
+- **Estado frente al plan**: ✅ AL DÍA. Parada 8 (`vocab_loader.py`) EN REVISIÓN — pendiente de re-explicación.
+
+### 9 septiembre 2026 (noche — cierre de sesión, el usuario fue a descansar)
+- **Recorrido**: parada 8 PRESENTADA pero NO confirmada. El usuario se fue con disonancias sin resolver (unicode/decodificación entre dos análisis) → **queda PENDIENTE de re-explicación** (retomar en la próxima sesión con: byte-to-unicode, roundtrip identidad, `model.decode` vs `encode+decode`).
+- **Hallazgo BUG-003 (doc ↔ código divergentes en vocab_loader)**: la spec (Task 1.9 + didáctico) enseñaba `token_text.encode('utf-8').decode('utf-8')` — roundtrip identidad que NO deshace la byte-to-unicode table → índice por 'Ġ' inservible. El código real usa `model.decode([token_id])` — correcto. Doc actualizada al approach real (Task 1.9 + didáctico + TeoricNotes).
+- **Desmentido registrado**: circuló la afirmación "vocab_loader no tiene test unitario / necesita el modelo real" — FALSO: `TestLoadVocab` con FakeModel existe (tests/test_loader.py L95-125) y pasa.
+- **Código NO tocado** (solo docs). 37 tests siguen en verde, flake8 + mypy limpios.
+- **Próxima sesión**: 1) re-explicar parada 8 (unicode/decodificación) hasta confirmación → 2) recién ahí marcar la parada 8 y pasar a la 9 (`src/prompt/prompt_builder.py`) → 3) Phase 3 (Decoder Core) sigue como próximo hito de implementación.
+- 🚨 **PENDIENTE CRÍTICO encontrado al cierre**: `src/models/function_definition.py` tiene un cambio SIN commitear que rompe el código: `name: str` fue cambiado a `name: st` (typo — `st` no existe en ningún lado del proyecto → NameError). El árbol estaba LIMPIO al inicio de la sesión → el cambio apareció durante esta (posible otra sesión activa o edit a mano). **NO se commiteó ni se revirtió — queda en el working tree para que el usuario decida** (revertir o corregir). Verificar ANTES de cualquier corrida de tests.
 
 ---
 

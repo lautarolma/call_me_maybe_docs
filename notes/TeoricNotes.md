@@ -294,3 +294,64 @@ aparece en una capa.)
 **En una línea:** si tu detector de duplicados usa `count()` dentro de un loop,
 es O(n²); un `set` lo deja O(n) y te da fail-fast gratis.
 
+---
+
+## BYTE-LEVEL BPE, BYTE-TO-UNICODE Y EL ROUNDTRIP IDENTIDAD (del recorrido: src/loader/vocab_loader.py — BUG-003)
+
+> Pendiente de re-explicar con el usuario (2026-09-09, parada 8 en revisión). La duda
+> central: ¿por qué el código decodifica con `model.decode` y NO con Python?
+> ¿Qué tiene que ver el `Ġ`?
+
+### Los bytes se pintan de unicode para poder "vivir" en un string
+- Los tokenizadores byte-level BPE trabajan a nivel BYTE, pero el vocab.json guarda
+  STRINGS. Para meter bytes invisibles/no imprimibles (0x00-0xFF) en strings unicode,
+  se usa una **byte-to-unicode table**: cada byte 0-255 se mapea a un carácter
+  "visible".
+- El ESPACIO (byte 0x20) se mapea a `Ġ` (U+0120, una G con macrón). El token del
+  texto " the" se guarda como `Ġthe`. Parece una letra rara, pero es UN ESPACIO
+  disfrazado.
+
+### El vocab.json guarda tokens con ESA máscara puesta
+- `"Ġthe"` NO es "G-the"; es "␣the" (espacio+the) con la máscara puesta.
+- El texto REAL no se obtiene mirando el string: hay que aplicar la tabla INVERSA
+  (carácter mapeado → byte). Eso es trabajo del TOKENIZER.
+
+### ¿Quién aplica la tabla inversa? EL TOKENIZER (`model.decode`)
+- `model.decode([token_id])` → texto REAL: `'Ġthe'` → `' the'`.
+- En el SDK interno, decode hace: token → caracteres mapeados → bytes → UTF-8 → str real.
+- Por eso el loader necesita el MODELO y no puede "decodificar a mano".
+
+### POR QUÉ `token_text.encode('utf-8').decode('utf-8')` ES UNA TRAMPA (el bug de la spec)
+- `s.encode('utf-8')` → bytes; `.decode('utf-8')` → string de nuevo.
+- Para TODO string unicode válido es **identidad**: `'Ġthe'` sale `'Ġthe'`.
+- NO deshace la tabla → el primer char sería `'Ġ'` (mapeado), no `' '` (real) →
+  el índice quedaría agrupado por caracteres-mapeados → el decoder busca
+  `tokens_starting_with[" "]` y NO encuentra `Ġthe` → fallo lógico silencioso.
+- Bonus: `encode('utf-8')` no falla para strings unicode válidos → el try/except
+  de la spec era casi código muerto.
+
+| Operación | `'Ġthe'` (mapeado) | Resultado | ¿Deshace la tabla? |
+|---|---|---|---|
+| `encode('utf-8')` + `decode('utf-8')` (Python) | → bytes → str | `'Ġthe'` | ❌ identidad |
+| `model.decode([token_id])` (tokenizer) | → tabla inversa | `' the'` | ✅ sí |
+
+### Por qué se indexa por el PRIMER carácter DECODIFICADO
+- El decoder (Phase 3) filtra candidatos por el primer carácter del texto REAL que
+  está generando (`' '`, `'{'`, etc.). Con el índice por caracteres-mapeados,
+  `Ġthe` caería en `Ġ` y nunca se encontraría al buscar `' '`.
+- Pre-indexación = pago único O(V tokens × D decode); toda consulta después es O(1)
+  con `setdefault` + `set`.
+
+### Por qué existen los `<byte>` (BYTE_CATEGORY)
+- Tokens especiales (`<|endoftext|>`, `<|im_start|>`, etc.) decodifican a vacío o
+  fallan → no tienen primer carácter útil → bucket de estacionamiento.
+- Ojo API: `decode([token_id])` recibe LISTA (el SDK lo espera así); un int suelto
+  puede crashear.
+- ❌ NO son "bytes UTF-8 incompletos" (lo que decía la 1ª versión del didáctico):
+  el vocab ya viene en texto mapeado, no con bytes sueltos. Ese modelo mental era
+  incorrecto → corregido en BUG-003.
+
+**En una línea:** el vocab.json muestra los tokens con una máscara (byte-to-unicode)
+— `Ġ` es un espacio; el texto real SOLO se obtiene decodificando con el tokenizer
+(`model.decode`); `encode+decode` de Python es un roundtrip identidad que no sirve.
+

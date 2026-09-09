@@ -697,49 +697,58 @@ Este es el cargador más importante y complejo. El vocabulario es el diccionario
 ```python
 # src/loader/vocab_loader.py
 import json
-from dataclasses import dataclass, field
-from llm_sdk.llm_sdk import Small_LLM_Model
+from dataclasses import dataclass
+from llm_sdk import Small_LLM_Model
 
-@dataclass
+BYTE_CATEGORY = "<byte>"
+
+@dataclass(slots=True)
 class Vocab:
     """Vocabulario del modelo con índices pre-computados."""
-    token2id: dict[str, int]           # token_text → token_id
-    id2token: dict[int, str]           # token_id → token_text
-    tokens_starting_with: dict[str, set[int]]  # primer_char → set de token_ids
+    token2id: dict[str, int]           # token_text → token_id (texto CRUDO)
+    id2token: dict[int, str]           # token_id → token_text (texto CRUDO)
+    id2decoded: dict[int, str]         # token_id → texto DECODIFICADO (nuevo vs spec)
+    tokens_starting_with: dict[str, set[int]]  # primer char DECODIFICADO → set de ids
     vocab_size: int
 
 def load_vocab(model: Small_LLM_Model) -> Vocab:
     """Carga vocabulario del modelo y construye índices pre-computados."""
     vocab_path = model.get_path_to_vocab_file()
-    with open(vocab_path) as f:
+    with open(vocab_path, encoding="utf-8") as f:
         raw_vocab = json.load(f)
 
     token2id = raw_vocab
     id2token = {v: k for k, v in token2id.items()}
 
-    # Pre-indexar por primer carácter decodificado
+    id2decoded: dict[int, str] = {}
     tokens_starting_with: dict[str, set[int]] = {}
     for token_text, token_id in token2id.items():
         try:
-            # Intentar decodificar el token a texto legible
-            decoded = token_text.encode('utf-8').decode('utf-8')
-            first_char = decoded[0] if decoded else ""
-        except (UnicodeDecodeError, IndexError):
-            # Tokens con bytes UTF-8 incompletos — los agrupamos bajo "<byte>"
-            first_char = "<byte>"
+            decoded = model.decode([token_id])   # tokenizer REAL (deshace byte-to-unicode)
+        except Exception:
+            decoded = ""
+        if not decoded:
+            # Especiales/intermedios que decodifican a nada → bucket <byte>
+            tokens_starting_with.setdefault(BYTE_CATEGORY, set()).add(token_id)
+            continue
+        first_char = decoded[0]
+        id2decoded[token_id] = decoded
         tokens_starting_with.setdefault(first_char, set()).add(token_id)
 
     return Vocab(
         token2id=token2id,
         id2token=id2token,
+        id2decoded=id2decoded,
         tokens_starting_with=tokens_starting_with,
         vocab_size=len(token2id),
     )
 ```
 
-**¿Qué es `tokens_starting_with`?** Es un índice que agrupa tokens por su primer carácter. En vez de escanear 151K tokens para encontrar los que empiezan con `{`, directamente hacés `tokens_starting_with["{"]` y te da un set de IDs. Es la diferencia entre buscar un libro en una biblioteca desorganizada (escanear todo) vs usar el catálogo (úsqueda instantánea).
+**¿Qué es `tokens_starting_with`?** Es un índice que agrupa tokens por el PRIMER CARÁCTER DEL TEXTO DECODIFICADO. En vez de escanear 151K tokens para encontrar los que empiezan con `{`, directamente hacés `tokens_starting_with["{"]` y te da un set de IDs. Es la diferencia entre buscar un libro en una biblioteca desorganizada (escanear todo) vs usar el catálogo (búsqueda instantánea).
 
-**¿Qué son los tokens con bytes UTF-8 incompletos?** Algunos tokens de BPE representan **parciales** de caracteres Unicode. Por ejemplo, `é` en UTF-8 son dos bytes: `0xC3` y `0xA9`. Un token puede representar solo el primer byte — eso es un "byte incompleto". No podemos decodificarlo a un carácter legible, así que lo agrupamos bajo `"<byte>"` en el índice.
+**¿Por qué decodificar con el TOKENIZER y no con Python? (la clave, ver BUG-003 ⚠️)** Porque el vocab.json NO guarda texto real: guarda tokens maquillados por la **byte-to-unicode table** (cada byte 0-255 mapeado a un carácter "visible"). El espacio (byte 0x20) se guarda como `Ġ`; el token de " the" se ve `Ġthe`. Para obtener el texto real hay que aplicar la tabla INVERSA — eso lo hace el tokenizer (`model.decode`). `token_text.encode('utf-8').decode('utf-8')` NO: es un roundtrip IDENTIDAD (el string sale igual), así que el primer char quedaría `Ġ` y el índice sería inservible. La primera versión de esta doc hablaba de "bytes UTF-8 incompletos" — modelo mental incorrecto, corregido en BUG-003 (ver TeoricNotes.md → Byte-level BPE).
+
+**¿Qué son los tokens `<byte>`?** Tokens que al decodificar dan vacío o fallan (los especiales del chat, `<|endoftext|>`, etc.). No tienen un primer carácter útil → van a un bucket de estacionamiento `"<byte>"`, separados de los legibles.
 
 ## Manejo de errores en cargadores
 
