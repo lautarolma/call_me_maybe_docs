@@ -8,8 +8,7 @@
 
 ## 📍 Posición actual del recorrido
 
-- **Parada 8 EN REVISIÓN**: `src/loader/vocab_loader.py` — presentada y documentada (BUG-003), pero **pendiente de re-explicación** (usuario desorientado con unicode/decodificación, 2026-09-09 noche). **Retomar acá.**
-- **Próximo archivo en análisis (tras confirmar la 8)**: `src/prompt/prompt_builder.py` (parada 9, ← Phase 2)
+- **Parada 9 POR EMPEZAR**: `src/prompt/prompt_builder.py` ← Phase 2.
 - **Progreso**:
   - [x] 1. `src/__main__.py`
   - [x] 2. `src/cli.py` (dudas resueltas: argparse -h/help, exit codes 0/1/2, Path vs str → ver TeoricNotes.md)
@@ -18,7 +17,7 @@
   - [x] 5. `src/models/function_definition.py` (confirmada 2026-09-06)
   - [x] 6. `src/loader/input_loader.py` (confirmada 2026-09-07; short-circuit/orden de condiciones → ver TeoricNotes.md)
   - [x] 7. `src/loader/function_loader.py` (confirmada 2026-09-08; asimetría con input_loader → BUG-002, ver BITACORA_BUGS.md)
-  - [ ] 8. `src/loader/vocab_loader.py`
+  - [x] 8. `src/loader/vocab_loader.py` (confirmada 2026-09-09; BUG-003 doc↔código, byte-to-unicode, roundtrip identity)
   - [ ] 9. `src/prompt/prompt_builder.py` ← Phase 2
   - [ ] (opcional) Tests como referencia cruzada de cada capa
 
@@ -189,7 +188,7 @@ Secuencia (el "andamio"): 1. Pydantic construye `ParameterDef(name="")` placehol
 
 ### 8. `src/loader/vocab_loader.py`
 
-**Estado: 🔴 EN REVISIÓN — presentada 2026-09-09, PENDIENTE de re-explicación.** El usuario terminó la sesión desorientado con unicode/decodificación (disonancias entre dos análisis). Retomar con: byte-to-unicode table, `'Ġ'` = espacio byte-encodeado, por qué `model.decode()` y NO `encode+decode` de Python (roundtrip identidad), y por qué el índice usa el 1er carácter DECODIFICADO. Material: TeoricNotes.md → "Byte-level BPE", BUG-003 en BITACORA_BUGS.md.
+**Estado: ✅ CONFIRMADA (2026-09-09)** — re-explicacion de unicode/byte-to-unicode/roundtrip identity completada. BUG-003 documentado.
 
 **Qué hace** (sin testear, sin modificar — análisis 2026-09-09):
 1. Abre el `vocab.json` del modelo via `model.get_path_to_vocab_file()` → `{token_text: token_id}` (151K+ tokens).
@@ -211,7 +210,24 @@ Secuencia (el "andamio"): 1. Pydantic construye `ParameterDef(name="")` placehol
 **Tests**: `TestLoadVocab` con `FakeModel` (tests/test_loader.py L95-125) — NO necesita el modelo real. `test_builds_preindexed_structures` verifica tamaño 5, `token2id["{"]==0`, `id2token[2]=="Ġworld"`, `id2decoded[2]==" world"`, `2 in tokens_starting_with[" "]`, `4 in tokens_starting_with["<byte>"]`.
 
 ### 9. `src/prompt/prompt_builder.py`
-*(pendiente)*
+
+**Estado: CONFIRMADA (2026-09-09)** — formato fijo, dos niveles de relleno (f-string en build_function_list, .format en build_prompt), por que numerar con enumerate.
+
+**Que hace**: construye el prompt completo que se le pasa al modelo. Es la CAPA DE TRADUCCION entre las FunctionDef (datos estructurados validados por pydantic) y el texto plano que el modelo necesita para "entender" que puede llamar funciones.
+
+**Por que existe**: un modelo chico (Qwen3-0.6B) no tiene la menor idea de que existen "funciones". Lo que entiende es TEXTO. Esta capa toma las funciones definidas por el usuario y las escribe como texto formateado dentro de un prompt. El modelo lee eso y genera texto que (esperamos) sea un JSON valido con name + parameters.
+
+**3 partes del prompt**:
+1. Instruccion del sistema — "sos un asistente de function calling"
+2. Lista de funciones — numerada, con tipos, formato identico al que el decoder restringido va a validar
+3. Query del usuario — "User query: ..."
+
+**Decisiones de diseno**:
+1. Formato FIJO (SYSTEM_PROMPT como constante) — si el formato varia entre llamadas, el modelo tiene que re-descubrir el patron cada vez. Formato fijo = mejor accuracy.
+2. `build_function_list()` es separada de `build_prompt()` — testeable independiente, y reutilizable si en el futuro necesitamos armar prompts con distintas queries.
+3. `enumerate(functions, start=1)` — numeracion humana (1-indexed), no de array.
+4. Los tipos (`number`, `string`, `boolean`, `null`) se escriben EXACTAMENTE como los usa el decoder restringido despues — modelo y decoder hablan el mismo vocabulario.
+5. `str.format()` en vez de f-string para SYSTEM_PROMPT — el placeholder `{function_list}` se rellena por llamada, no en definicion.
 
 ---
 

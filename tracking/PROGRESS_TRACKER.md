@@ -138,14 +138,25 @@
   - Doc actualizada: BITACORA_BUGS (BUG-002), PLAN_IMPLEMENTACION (Task 1.8), PLAN_DIDACTICO (sección cargador), TeoricNotes (sección Counter/set/fail-fast), RECORRIDO (parada 7)
 - **Estado frente al plan**: ✅ AL DÍA. Parada 8 (`vocab_loader.py`) EN REVISIÓN — pendiente de re-explicación.
 
-### 9 septiembre 2026 (noche — cierre de sesión, el usuario fue a descansar)
-- **Recorrido**: parada 8 PRESENTADA pero NO confirmada. El usuario se fue con disonancias sin resolver (unicode/decodificación entre dos análisis) → **queda PENDIENTE de re-explicación** (retomar en la próxima sesión con: byte-to-unicode, roundtrip identidad, `model.decode` vs `encode+decode`).
-- **Hallazgo BUG-003 (doc ↔ código divergentes en vocab_loader)**: la spec (Task 1.9 + didáctico) enseñaba `token_text.encode('utf-8').decode('utf-8')` — roundtrip identidad que NO deshace la byte-to-unicode table → índice por 'Ġ' inservible. El código real usa `model.decode([token_id])` — correcto. Doc actualizada al approach real (Task 1.9 + didáctico + TeoricNotes).
-- **Desmentido registrado**: circuló la afirmación "vocab_loader no tiene test unitario / necesita el modelo real" — FALSO: `TestLoadVocab` con FakeModel existe (tests/test_loader.py L95-125) y pasa.
-- **Código NO tocado** (solo docs). 37 tests siguen en verde, flake8 + mypy limpios.
-- **Próxima sesión**: 1) re-explicar parada 8 (unicode/decodificación) hasta confirmación → 2) recién ahí marcar la parada 8 y pasar a la 9 (`src/prompt/prompt_builder.py`) → 3) Phase 3 (Decoder Core) sigue como próximo hito de implementación.
-- 🚨 **PENDIENTE CRÍTICO encontrado al cierre**: `src/models/function_definition.py` tiene un cambio SIN commitear que rompe el código: `name: str` fue cambiado a `name: st` (typo — `st` no existe en ningún lado del proyecto → NameError). El árbol estaba LIMPIO al inicio de la sesión → el cambio apareció durante esta (posible otra sesión activa o edit a mano). **NO se commiteó ni se revirtió — queda en el working tree para que el usuario decida** (revertir o corregir). Verificar ANTES de cualquier corrida de tests.
+### 9 septiembre 2026 (noche — cierre de sesion, el usuario fue a descansar)
+- **Recorrido**: parada 8 PRESENTADA pero NO confirmada. El usuario se fue con disonancias sin resolver (unicode/decodificacion entre dos analisis) -> queda PENDIENTE de re-explicacion (retomar en la proxima sesion con: byte-to-unicode, roundtrip identidad, `model.decode` vs `encode+decode`).
+- **Hallazgo BUG-003 (doc <-> codigo divergentes en vocab_loader)**: la spec (Task 1.9 + didactico) ensenaba `token_text.encode('utf-8').decode('utf-8')` — roundtrip identidad que NO deshace la byte-to-unicode table -> indice por 'G' inservible. El codigo real usa `model.decode([token_id])` — correcto. Doc actualizada al approach real (Task 1.9 + didactico + TeoricNotes).
+- **Codigo NO tocado** (solo docs). 37 tests siguen en verde, flake8 + mypy limpios.
+- **Proxima sesion**: 1) re-explicar parada 8 (unicode/decodificacion) hasta confirmacion -> 2) recien ahi marcar la parada 8 y pasar a la 9 (`src/prompt/prompt_builder.py`) -> 3) Phase 3 (Decoder Core) sigue como proximo hito de implementacion.
+
+### 9 septiembre 2026 (tarde — segunda sesion)
+- **Recorrido**: parada 8 CONFIRMADA tras re-explicacion de unicode/byte-to-unicode/roundtrip identity. BUG-003 ya documentado en sesion anterior.
+- **Typo corregido**: `function_definition.py` tenia `name: st` (de sesion paralela) -> revertido a `name: str`. Working tree limpio.
+- **37 tests en verde** (uv run pytest).
+- **Parada 9 INICIADA**: `src/prompt/prompt_builder.py` — en revision.
+- **Estado frente al plan**: AL DIA. Proximo paso: completar revision parada 9 -> Phase 3 (Decoder Core) como proximo hito.
 
 ---
+
+### 9-11 septiembre 2026 (sesion retomada)
+- **Recorrido**: parada 8 CONFIRMADA (re-explicacion byte-to-unicode, roundtrip identity, tokens especiales vs bytes incompletos) -> parada 9 CONFIRMADA (`prompt_builder.py`: format deferred vs f-string, enumeracion de funciones, tipos como contrato con el decoder).
+- **Recorrido de codigo COMPLETO** (paradas 1-9). Queda opcional la parada 10 (tests como referencia cruzada).
+- **Typo corregido**: `name: st` -> `name: str` en function_definition.py (error de sesion paralela). Working tree limpio. 37 tests en verde.
+- **Estado frente al plan**: AL DIA. Proximo hito: **Phase 3 (Decoder Core)** — arranca con Task 3.1 (`state.py`).
 
 *Este archivo se actualiza al inicio de cada sesión de trabajo*
