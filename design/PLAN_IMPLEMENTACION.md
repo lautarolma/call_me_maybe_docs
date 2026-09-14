@@ -800,16 +800,52 @@ Mitigación: el constrained decoding GARANTIZA JSON válido y nombres/keys corre
 
 ### B5. Performance optimizations
 
-**Cambios**:
-1. Batch processing de prompts (si SDK lo permite)
-2. KV-cache management (si SDK lo expone)
-3. Profiling con `cProfile` y optimización de hot paths
-4. `__slots__` en todas las data classes del decoder
+**Cambios** (evaluación 2026-09-14):
+1. ~~Batch processing de prompts~~ → **DESCARTADO**: el SDK es single-sequence, no expone batching ni GPU
+2. ~~KV-cache management~~ → **DESCARTADO**: el SDK no expone KV-cache (cada `get_logits` re-encoda la secuencia completa)
+3. Profiling con `cProfile` y optimización de hot paths → **VÁLIDO**: es el paso 0 obligatorio antes de cualquier otra optimización
+4. ~~`__slots__` en data classes del decoder~~ → **YA IMPLEMENTADO**: `DecoderState` usa `@dataclass(slots=True)`
 
 **Mini plan**:
-1. Benchmark pipeline completa
-2. Identificar top-3 bottlenecks
-3. Optimizar uno por uno
+1. Benchmark pipeline completa (11 prompts, target <5 min)
+2. Identificar top-3 bottlenecks (esperado: `get_logits_from_input_ids` ~150-200ms/paso)
+3. Optimizar uno por uno, midiendo antes/después
+
+#### Inciso 5.1 — Evaluada y descartada: prefix injection del esqueleto fijo (2026-09-14)
+
+**Qué era**: incrustar `{"name": ` como tokens fijos en el prompt (encode inicial) e inyectar
+`", "parameters": {` en el `input_ids` justo cuando el estado llega a `VALUE_END` con
+`current_key="name"` y `depth=0` — cada chunk fijo costaría UN forward pass en vez de N
+(válido porque el SDK no tiene KV-cache: pegar tokens al `input_ids` sin llamar al modelo
+por cada uno es gratis hasta el próximo `get_logits`).
+
+**Estimación de impacto**: ~1-5% del pipeline total (<300 s → 4-13 s para 11 outputs).
+El 90%+ del runtime está en la parte VARIABLE del output (nombre de función, keys de
+parameters, valores) — que por definición NO es inyectable, es decisión del modelo.
+Aun con implementación perfecta, no ataca el bottleneck real (Amdahl).
+
+**Motivos de descarte**:
+1. **Impacto marginal**: 4-13 s sobre un target de 300 s. El plato principal (parte
+   variable) queda intacto.
+2. **Acoplamiento al formato de salida**: hardcodea `"name"`/`"parameters"` en el loop
+   de generación como texto literal, rompiendo la separación state (sintaxis, agnóstica
+   al schema — ver state_machine.md §1) ↔ schema (semántica) del diseño. Cambiar el
+   formato de salida exigiría tocar prompt_builder + prefix + estados de inyección.
+3. **Riesgo de accuracy no medido**: el modelo recibe un output que arranca con un
+   prefix que nunca vio en el prompt (le "miente" al contexto); en Qwen3-0.6B eso
+   puede costar accuracy sin ganancia clara.
+
+**Qué NO se descarta**: la mecánica de "pegar tokens fijos al `input_ids` y hacer un solo
+forward pass por chunk" es correcta y aprovecha la ausencia de KV-cache del SDK. Si en el
+futuro el formato se vuelve 100% estable Y el profiling muestra que el esqueleto estructural
+es una fracción relevante del runtime, se puede re-evaluar sin tocar la state machine.
+
+**Estrategia recomendada en su lugar**: profilear primero (cProfile) y evaluar
+**opportunistic masking** — probar el argmax del modelo contra la máquina de estados
+ANTES de filtrar el set completo; hacer full-scan solo si el token propuesto es inválido.
+Ataca la parte variable (el ~90% del runtime) sin acoplar el formato de salida al decoder.
+(Opcional, más adelante: clases de equivalencia de tokens offline — ver CFGzip
+arxiv 2605.29986 — como generalización del pre-índice `tokens_starting_with`.)
 
 ### B6. Test suite comprehensiva
 

@@ -355,3 +355,49 @@ es O(n²); un `set` lo deja O(n) y te da fail-fast gratis.
 — `Ġ` es un espacio; el texto real SOLO se obtiene decodificando con el tokenizer
 (`model.decode`); `encode+decode` de Python es un roundtrip identidad que no sirve.
 
+## SYNTAX vs SEMÁNTICA: QUÉ VALIDA EL STATE MACHINE (del decoder: src/decoder/state.py)
+
+### La confusión de base (la que costó entender)
+- El state machine NO valida "si el valor es correcto para el negocio" ni "si la key
+  existe ni si está vacía". Valida UNA SOLA cosa: **¿esto sigue siendo JSON sintácticamente
+  válido?** Es un validador de GRAMÁTICA sobre un string, no de reglas del dominio.
+- Eso significa: `{"": 1}` PASA por la state machine (sintaxis OK). Que el schema
+  rechace la key vacía es OTRO nivel (semántica → schema_validator, Task 3.3).
+
+### Los DOS niveles (la distinción que faltaba)
+1. **Sintaxis JSON** (esto hace state.py): secuencia de caracteres válida, cierre de
+   comillas, usos correctos de `:` `,` `{` `}`, number parcial/completo, escapes
+   `\n` `\uXXXX`, literales true/false/null.
+2. **Reglas del problema / schema** (NO hace acá → Task 3.3): que la key exista, que no
+   esté vacía si el schema lo prohíbe, que los required params estén presentes, que el
+   valor tenga el tipo que el negocio espera.
+
+### El caso "key vacía": por qué NO se invalida acá
+- `{"": 1}` → ROOT → `{` → OBJECT_OPEN → `"` → KEY_START → `"` → KEY_END → `:` → COLON
+  → `1` → IN_NUMBER_VALUE → `}` → COMPLETE. **Válido sintácticamente.**
+- Si la key vacía no debe existir, esa regla vive en el schema/validador de negocio,
+  que corre DESPUÉS de la state machine.
+
+### KEY_END no "valida el valor de la key"; espera el próximo token
+- Después de cerrar una key el parser solo permite: whitespace (opcional) y luego `:`.
+- `{"":1}` → válido · `{"":}` → inválido (post-`:` no hay value) · `{"a" 1}` → inválido
+  (falta `:`) · `{"":"x"}` → válido.
+
+### El mismo patrón en otros `_step_*`: acepta estructura, no semántica final
+- En string: `""` es un string CORRECTO y cierra en VALUE_END — no hay chequeo
+  "string no puede estar vacío".
+- KEY_START + `"` inmediato → KEY_END (key vacía) es una transición legal.
+
+### Casos edge confirmados (en pocas líneas)
+- `{"":1}` → pasa (key vacía es legal en sintaxis).
+- `{"":}` → **KEY_END→COLON** acepta `:`, pero luego `}` a la derecha de `:` no es
+  value → falla (COLON no acepta `}`).
+- `{"a" 1}` → **KEY_END** rechaza: tras la key cerrada solo valen ws y `:`.
+- `{"":"x"}` → pasa (string value).
+- `""` → pasa (string vacío válido).
+
+**En una línea:** el state machine es el árbitro de SINTAXIS (gramática JSON char por
+char) y es INTENCIONALMENTE ciego a la semántica (qué keys existen, tipos esperados,
+required keys) — eso es trabajo de schema_validator.py (Task 3.3). La separación
+sintaxis ↔ semántica es el diseño: cada capa valida UNA sola cosa.
+

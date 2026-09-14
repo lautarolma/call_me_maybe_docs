@@ -159,4 +159,18 @@
 - **Typo corregido**: `name: st` -> `name: str` en function_definition.py (error de sesion paralela). Working tree limpio. 37 tests en verde.
 - **Estado frente al plan**: AL DIA. Proximo hito: **Phase 3 (Decoder Core)** — arranca con Task 3.1 (`state.py`).
 
+### 14 septiembre 2026 (Día 16 — retomado, pre-sesión de madrugada)
+- **Checkpoint registrado al CERRAR jornada** (no al inicio, como pide el header — esta entrada se escribe para retomar).
+- **Estado REAL verificado contra el código** (no de memoria):
+  - ✅ Phase 1 (loaders+models) y Phase 2 (prompt_builder) COMPLETAS — `src/loader/*`, `src/models/*`, `src/prompt/prompt_builder.py`.
+  - ✅ **Task 3.1 (state machine) COMPLETA**: `src/decoder/state.py` — 451 líneas, 15 fases (`DecoderPhase` enum str), `simulate()`, `update_from_text()` (atómico), `expected_first_chars()`, `_advance_char()` con `match/case`, handlers por rol (ROOT/OBJECT/KEY/STRING/NUMBER/LITERAL/VALUE_END), `@dataclass(slots=True)`.
+  - ✅ `tests/test_state.py` EXISTE y está desarrollado (383 líneas: ROOT→COMPLETE char-por-char, keys_enclosed solo keys de parameters, slots sin `__dict__`, edge cases de number/literal/escape).
+  - ❌ **Tasks 3.2–3.5 PENDIENTES**: `trie.py`, `schema_validator.py`, `token_filter.py` no existen; `test_trie.py`/`test_token_filter.py` no existen.
+  - ⚠️ PROGRESS_TRACKER previo decía "37 tests / 9-11 sept" — DESACTUALIZADO (no cuenta Phase 3).
+- **Bonus B5 documentado en `PLAN_IMPLEMENTACION.md`** (Inciso 5.1, L814-846): prefix injection EVALUADA Y DESCARTADA (impacto ~1-5%, acoplamiento al formato, riesgo accuracy) + estado real de los 4 items del stub B5 (batch/KV-cache descartados, profiling válido, `__slots__` ya implementado). Recomendado en su lugar: opportunistic masking post-profiling.
+- **Nota teórica añadida** a `docs/notes/TeoricNotes.md` (sección SYNTAX vs SEMÁNTICA): el state machine valida gramática JSON, NO reglas de negocio (key vacía pasa; schema_validator/Task 3.3 es quien rechaza); casos edge confirmados contra código (`{"":1}` OK, `{"":}` falla, `{"a" 1}` falla, `{"":"x"}` OK, `""` OK).
+- **Estado frente al plan**: ATRASADO ~5-6 días vs CRONOGRAMA_TRABAJO (hoy Día 16 esperaba Task 4.1). Quedan 13 tasks en ~7 días (3.2-3.5 + Phases 4-6).
+- **Próximo paso**: Task 3.2 — `src/decoder/trie.py` + `tests/test_trie.py` (build_trie con las 5 funciones reales, valid_next_chars("fn_a") == {"d"}, is_complete_name).
+- **📌 PENDIENTE DIDÁCTICO (anotado 14 sept)**: traducir las 2 regex de numbers de `src/decoder/state.py` (L49-54) a formato entendible — `_NUMBER_PREFIX_RE` ("número a medio terminar", valida PREFIXO incremental char-por-char en `_step_number`) vs `_NUMBER_RE` ("número completo", decide cierre con `,`/`}`/ws). El usuario NO consigue leerlas con claridad: demasiado abstracta la delimitación de casos. Hacer una sección en `TeoricNotes.md` con desglose pieza por pieza (signo, cero líder, fracción, exponente), los casos clave (`2.` admite solo dígitos, `2e` admite digits/+-/terminal, `2.e` DEBE fallar, leading zeros rechazados), y por qué x2 regex en vez de una estricta única.
+
 *Este archivo se actualiza al inicio de cada sesión de trabajo*
