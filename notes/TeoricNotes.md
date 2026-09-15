@@ -401,3 +401,223 @@ char) y es INTENCIONALMENTE ciego a la semántica (qué keys existen, tipos espe
 required keys) — eso es trabajo de schema_validator.py (Task 3.3). La separación
 sintaxis ↔ semántica es el diseño: cada capa valida UNA sola cosa.
 
+---
+
+## GRAMMAR NUMÉRICA: LAS DOS REGEX (del decoder: src/decoder/state.py)
+
+### El problema: dos momentos distintos, dos validaciones distintas
+- Mientras se ESCRIBE el número necesitás saber si el próximo carácter sigue siendo
+  parte del número (validación incremental char por char).
+- Al CERRAR el value (`,` / `}` / whitespace) necesitás saber si lo acumulado es un
+  número JSON válido COMPLETO.
+- Una sola regex no sirve para ambos: la de prefijo debe aceptar estados "en
+  construcción" que la estricta debe rechazar (y al revés).
+
+### `_NUMBER_RE` (estricta): decide al cerrar
+`-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`
+
+Pieza por pieza:
+- `-?` → signo menos OPCIONAL, solo al inicio. El `+` no existe como signo de número
+  (solo como signo de exponente).
+- `0|[1-9][0-9]*` → O un cero SOLO, O un primer dígito 1-9 seguido de cualquier
+  cantidad de dígitos → **rechaza leading zeros**: `01`, `-01` FALLAN.
+- `(\.[0-9]+)?` → fracción opcional: punto + AL MENOS un dígito → `2.` NO es válido
+  al cerrar.
+- `([eE][+-]?[0-9]+)?` → exponente opcional: e/E, signo opcional, AL MENOS un dígito
+  → `1e`, `1e+` NO cierran.
+
+Uso: `_is_valid_json_number()` — `_NUMBER_RE.fullmatch(number_buffer)` justo antes
+de cerrar el value en `_step_number`.
+
+### `_NUMBER_PREFIX_RE` (prefijo): valida mientras se escribe
+`-?(0|[1-9][0-9]*)(\.[0-9]+([eE][+-]?[0-9]*)?|\.[0-9]*|[eE][+-]?[0-9]*)?`
+
+La diferencia con la estricta está TODA en el final: los `*` toleran partes
+pendientes. `"-"` es un prefijo legal (falta el dígito), `"2."` también (puede venir
+el dígito de la fracción), `"2e"` y `"2e+"` también (falta el exponente).
+
+Uso: `_NUMBER_PREFIX_RE.fullmatch(number_buffer + char)` — el carácter candidato solo
+se acumula si mantiene el prefijo válido.
+
+### El truco fino (bug real corregido en Task 3.1)
+La alternancia decimal está **desanidada a propósito**:
+`\.[0-9]+([eE]...)?` primero (fracción con dígitos + exponente opcional), luego
+`\.[0-9]*` (fracción pendiente, SIN exponente), luego el exponente.
+
+Resultado: **`2.e` DEBE fallar** — un punto sin dígitos deja la fracción pendiente,
+y el exponente solo es legal DESPUÉS de al menos un dígito.
+
+### Tabla de casos clave (verificada contra el código)
+| Buffer | ¿Prefijo válido? | ¿Número completo? |
+|--------|------------------|-------------------|
+| `-` | ✅ sí | ❌ no |
+| `0` | ✅ sí | ✅ sí |
+| `01` | ❌ no | ❌ no (leading zero) |
+| `2.` | ✅ sí | ❌ no (solo dígitos pueden seguir) |
+| `2e` | ✅ sí | ❌ no (solo dígitos y `+`/`-`, falta exponente) |
+| `2.e` | ❌ no | ❌ no |
+| `2.5` | ✅ sí | ✅ sí |
+| `2.5e+2` | ✅ sí | ✅ sí |
+
+**En una línea:** dos momentos → dos criterios → dos regex: la estricta mataría
+`"2."` y `"2e+"` a mitad de camino (que son prefijos legítimos); la de prefijo dejaría
+pasar `"2."` o `"1e+"` al cerrar. Ninguna sola resuelve los dos momentos.
+
+---
+
+## EL CONTRATO function_call (qué valida exactamente el decoder)
+
+### Lo que el prompt le exige al modelo
+`"Output ONLY a JSON object with 'name' and 'parameters' fields. No explanation."` —
+el decoder valida esa forma canónica.
+
+### Las cláusulas en 3 grupos
+1. **Estructura**: UN solo objeto JSON (arranca con `{`); el `}` final del objeto
+   raíz detiene la generación (COMPLETE).
+2. **Contenido**: key `name` (string) + key `parameters` (objeto); keys libres
+   (cualquier carácter, sin escapes en keys); strings con escapes
+   `\" \\ \/ \n \t \r \b \f` y `\uXXXX` (4 dígitos hex); values de 4 tipos:
+   string / number / boolean / null.
+3. **Límites**: UN nivel de anidamiento (depth ≤ 1) — adentro de `parameters` no hay
+   objetos anidados; los literales `true` / `false` / `null` son exactos.
+
+**En una línea:** el decoder valida la FORMA (cláusulas del contrato); el trie
+(Task 3.2) valida que `name` sea una función existente, y el schema validator
+(Task 3.3) que las keys de `parameters` y sus tipos correspondan a la función elegida.
+
+---
+
+## LOS 16 ESTADOS EN 4 GRUPOS + CÓMO VIAJA EL CONTEXTO (del decoder: src/decoder/state.py)
+
+### La agrupación por rol (la misma del match/case)
+- **Apertura**: `ROOT` (espera `{`).
+- **Estructura de objeto**: `OBJECT_OPEN` / `IN_OBJECT` / `PARAMS_OBJECT`.
+- **Keys**: `KEY_START` / `IN_KEY` / `KEY_END`.
+- **Values**: `COLON` (arranque del value) + `IN_STRING_VALUE` / `IN_NUMBER_VALUE` /
+  `IN_BOOL_VALUE` / `IN_NULL_VALUE` / `ESCAPE_IN_STRING`.
+- **Cierre**: `VALUE_END` / `COMPLETE`.
+
+### Estados de espera vs acumulación
+- **Espera** (KEY_END, COLON, VALUE_END): solo aceptan whitespace (no consumidor) +
+  el token siguiente exacto (`:`, el arranque del value, o `,`/`}`). Son los "semáforos"
+  entre piezas.
+- **Acumulación** (IN_KEY, IN_STRING, IN_NUMBER): aceptan cualquier carácter que siga
+  la gramática y lo acumulan en un buffer.
+- `VALUE_START` existe en el enum pero es **INALCANZABLE**: el plan A6.3 lo reservaba
+  como paso intermedio de COLON; la implementación saltea directo al estado de value
+  concreto.
+- `COMPLETE` tolera whitespace extra (un modelo puede emitir una nueva línea después
+  del `}` final sin romper nada).
+
+### Por qué el dispatcher es `match/case` por rol y no if/elif monolítico
+1. **Limpieza de lectura**: cada rol de dominio tiene UNA función pequeña y enfocada
+   (handler) — en vez de una pared de if/elif mezclando keys, strings y números.
+2. **Independencia de testeo**: se instancia un `DecoderState` en cualquier fase y se
+   prueba SOLO la transición que interesa (ej: `_step_number` con buffers
+   determinados) sin recorrer todo el árbol de transiciones.
+3. **Costo honesto**: `match` sobre enum compila a comparaciones secuenciales en
+   CPython (NO es un jump table O(1)). El overhead por delegar a handlers ronda
+   ~100-200ns por carácter — irrelevante contra el bottleneck real: el regex de
+   number cuesta ~1-5μs por carácter.
+4. **Alternativas descartadas**: patrón GoF State (una clase por estado) — terrible
+   rendimiento en Python (~200-300ns extra por llamada) y sobre-ingeniería para 16
+   estados finitos; tabla DFA — JSON no es un lenguaje regular (necesita contexto y
+   acciones por transición), las lambdas por celda agregan más overhead que el match.
+
+### Los campos: cómo viaja el contexto
+| Campo | Rol |
+|-------|-----|
+| `phase` | La fase actual de la máquina |
+| `current_key` | Key cuyo value se está leyendo (acumulador) |
+| `keys_enclosed` | Keys YA cerradas, SOLO las de `parameters` (depth 1) |
+| `depth` | 0 = output object, 1 = parameters |
+| `number_buffer` / `bool_buffer` | Acumulan el number/literal en curso |
+| `unicode_remaining` | Dígitos hex pendientes de un `\uXXXX` en curso |
+
+### Por qué `number_buffer: str` y no booleanos (desvío documentado del plan)
+Los flags `number_has_digit` / `number_has_dot` del plan original no alcanzan:
+`"01"` (leading zero) y `"1"` tienen `has_digit = True`; `"2."` y `"2.5"` tienen
+`has_dot = True`. Se necesita la cadena acumulada completa para distinguir.
+
+### La regla crítica de `keys_enclosed`
+NUNCA se muta in-place; siempre se reemplaza (`set | {...}`). Si se mutara el set
+compartido, el shallow copy de `simulate()` contaminaría al original y viceversa —
+la regla es la que hace seguro el copy barato.
+
+**En una línea:** la máquina son 5 roles de dominio agrupados en handlers (match/case),
+16 estados donde 3 son semáforos de espera, y el contexto viaja en campos con buffers
+de acumulación — con `keys_enclosed` inmutable por diseño para que copiar el estado
+cueste ~50ns.
+
+---
+
+## LA API: EXPLORAR vs COMMITEAR + LA LLAVE DEL FILTER (del decoder: src/decoder/state.py)
+
+### `simulate(text)` → `(bool, state)` — EXPLORA sin tocar el estado real
+- Trabaja sobre `copy(self)` — shallow copy barata (~50ns), segura gracias a la regla
+  de `keys_enclosed`.
+- Recorre los caracteres del token UNO POR UNO; si CUALQUIER carácter falla →
+  `(False, self)`: el MISMO objeto original (aliasing deliberado y seguro — el
+  generator solo usa el 2° elemento cuando el 1° es `True`).
+- Si todo pasó → `(True, estado_resultante)`: el generator usa ese estado directo,
+  sin re-simular el token.
+
+### `update_from_text(text)` → `bool` — AVANZA el estado real (muta), atómico
+- Igual que simulate (copiar + avanzar char por char), pero al final COMMITEA los
+  campos de la copia en `self` uno por uno (con slots no hay `__dict__.update`;
+  además es mypy-friendly).
+- Si algo falla a mitad de camino, `self` queda EXACTAMENTE como estaba — el generator
+  nunca se queda con un estado a medio token.
+- Desvío del plan: retorna `bool` (el plan decía `-> None`).
+
+### `expected_first_chars()` → `set[str]` — la llave de Fase 1 del filter
+- Devuelve los caracteres con los que PUEDE arrancar el próximo token en el estado
+  actual.
+- `"*"` es comodín: cuando keys y strings son libres significa "cualquier carácter
+  real es posible" → el filter interpreta el comodín como "saltarse el pre-filtro".
+- Los tokens del bucket `<byte>` NUNCA matchean caracteres concretos → quedan fuera
+  en Fase 1; cuando hay `"*"` los decide la Fase 2 (simulate).
+- Caso fino: con `unicode_remaining > 0` devuelve SOLO el set de hex — el pre-filtro
+  solo deja pasar tokens que arrancan con un dígito hex.
+
+**En una línea:** tres métodos, tres roles distintos: `simulate` explora barato (sin
+efectos), `update_from_text` commitea atómico (o no commitea nada), y
+`expected_first_chars` es la llave que el filter usa para no simular los ~151K tokens.
+
+---
+
+## PARA CONTEXTO: LAS 3 FASES DEL FILTER + EL LOOP (Tasks 3.4 y Phase 4)
+
+### Las 3 fases de `compute_allowed_ids`
+1. **Fase 1 — pre-filtro por primer carácter**: `expected_first_chars()` del estado
+   → junta los buckets `vocab.tokens_starting_with` de cada char (con `"*"` se
+   saltea). Reduce ~151K tokens a típicamente 2K-15K candidatos.
+2. **Fase 2 — simulación char-by-char**: por cada candidato, `state.simulate(...)`.
+   Es candidato real solo si TODOS sus caracteres mantienen JSON válido.
+3. **Fase 3 — post-filtro de schema**: trie para keys parciales de "name", keys de
+   parameters vía schema, tipos de values esperados, y bloqueo de `}` de parameters
+   hasta `all_required_present()`.
+
+### La regla de oro (un token es allowed SOLO SI...)
+1. Todos sus caracteres mantienen JSON válido (Fase 2).
+2. En KEY_START/IN_KEY el key parcial es prefijo de una key conocida.
+3. En IN_STRING_VALUE de "name" el parcial es prefijo de un nombre de función válido.
+4. En número cumple la gramática (las dos regex).
+5. En string no hay restricción adicional.
+6. Al cerrar `}` de parameters TODOS los required están presentes.
+
+### El loop de generación (Phase 4 — Task 4.1)
+```
+logits → allowed_ids → si vacío: warning + repair → argmax sobre allowed → append
+→ token_text → state.update_from_text → schema.update → si COMPLETE: break
+→ si se agotó el límite de steps: break (safety)
+```
+- **NO usar EOS**: los modelos chicos lo emiten prematuramente; el criterio de fin ES
+  `state.phase == COMPLETE`.
+- `MAX_TOKENS = 200` como safety net: el output esperado es ~30-60 tokens; si a los
+  200 no se completó, el output probablemente está roto → cortar antes que generar
+  infinito (detalle completo en la sesión del 15 sept).
+
+**En una línea:** el filter es un embudo de 3 niveles (primer char → simulación →
+schema) y el loop termina SOLO por COMPLETE o por safety — nunca por EOS.
+
