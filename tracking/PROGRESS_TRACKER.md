@@ -200,4 +200,17 @@
   - Prioridad: el usuario está en modo teórico (1h máx por la regla de oro del cronograma) → después implementación.
 - **Estado frente al plan**: AL DÍA con el retrabajo; el desfasaje de Phase 3 quedó saldado ayer — el siguiente hito real es Task 4.1.
 
+### 17 septiembre 2026 (hoy — CIERRE de sesión, ~5h de hiperfoco)
+
+- **Horas trabajadas**: ~5h en TOTAL (1.5h al apertura + ~3.5h de estudio en hiperfoco). Fue puro ESTUDIO del flujo de implementación: schema_validator + token_filter completos, sin tocar código de producción (solo docstrings).
+- **Avance**:
+  - ✅ Documentados los ESQUEMAS del filter en TeoricNotes.md (NIVEL_1, NIVEL_2 3 bandas, C1-C4, slow-motion, tabla de gaps).
+  - ✅ **Análisis estructural de las 4 cláusulas de allows_token** (a pedido del usuario con su resumen del defecto): verificado contra el código que las cláusulas juzgan estados límite pre/post y que `return True` = abstención cuando el token no coincide con las condiciones buscadas (L235/302/336/338/380/382/385/405).
+  - ✅ **HALLAZGO nuevo documentado** en el docstring de `_allows_param_key`: un token que ENTRA a parameters y abre la PRIMERA key en el mismo paso (`'", "parameters": {"a'`) arranca en depth 0 commiteado → `self._depth != 1` abstiene y la key jamás se valida semánticamente (ni en este token ni en los siguientes, porque el trigger por cambio no vuelve a disparar). Gap REAL no documentado previamente.
+  - ✅ Decisión de arquitectura: NO re-diseñar el filter (los gaps requieren tokens largos multi-fase, raros en BPE real); se documentan en docstrings y el pase fino post-argmax queda como vía de cierre viable en Task 4.1 (re-simular 1 token por step, costo despreciable).
+  - ✅ Trabajo en contexto de Progreso: Mapas y esquemas generados con Python para alineación perfecta, `�E`→`❌` corregido, scan sin caracteres corruptos.
+- **Bloqueos**: Ninguno.
+- **Estado frente al plan**: ✅ AL DÍA con la teoría de Phase 3. **El usuario declara estar listo para Task 4.1 (el loop de generación) con teoría y entendimiento al día.**
+- **Próximo paso**: Task 4.1 — generator que llama `compute_allowed_ids` + argmax (el pase fino post-argmax del hallazgo entra como inciso de esa task).
+
 *Este archivo se actualiza al inicio de cada sesión de trabajo*
