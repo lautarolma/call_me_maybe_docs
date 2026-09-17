@@ -213,4 +213,19 @@
 - **Estado frente al plan**: ✅ AL DÍA con la teoría de Phase 3. **El usuario declara estar listo para Task 4.1 (el loop de generación) con teoría y entendimiento al día.**
 - **Próximo paso**: Task 4.1 — generator que llama `compute_allowed_ids` + argmax (el pase fino post-argmax del hallazgo entra como inciso de esa task).
 
+### 17 septiembre 2026 (hoy — IMPLEMENTACIÓN de Task 4.1 + Inciso 4.1.1)
+
+- **Horas trabajadas**: jornada completa (~5h teoría previa + implementación en esta sesión).
+- **Avance REAL verificado contra el código y la suite** (no de memoria):
+  - ✅ **Task 4.1 COMPLETA**: `src/decoder/constrained_generator.py` (NUEVO) — `generate()` con el ciclo del plan (encode → compute_allowed_ids → argmax sobre allowed → commit con `update_from_text` → decode), `MAX_TOKENS = 200`, corte sin repair en `allowed` vacío.
+  - ✅ **Inciso 4.1.1 (pase fino post-argmax) IMPLEMENTADO**: `_pick_best_token` + `_passes_fine_validation` — re-simulación char-por-char del GANADOR con SchemaContext fresco; si falla, se descarta y se rehace el argmax. Cierra los 5 gaps de BUG-004 (abstención de las cláusulas por estados límite): key inexistente en 1ra entrada a parameters, type erróneo en key+value+cierre, cierre de params sin required, duplicado exacto de key, y COMPLETE sin params.
+  - ✅ `src/decoder/schema_validator.py`: flag aditivo `_params_object_seen` (lo setea `update()` al ver PARAMS_OBJECT; NO rompe el contrato de Task 3.3) + `has_seen_params_object()`, sembrado desde el schema real al fino.
+  - ✅ `tests/test_constrained_generator.py` (NUEVO, 12 tests): 9 del pase fino (gaps 2/3/4, slip duplicado, params object) + 3 end-to-end con FakeModel (argmax sobre target fijo, max_tokens=0, garbage target→ second best).
+  - ✅ **Suite completa: 163 tests en verde** (151 + 12 nuevos), flake8 + mypy limpios.
+  - ✅ **BUG-004 documentado** en `docs/tracking/BITACORA_BUGS.md` (severidad ALTA conceptual, causa raíz: contrato pre/post de allows_token solo ve 2 puntos del recorrido por token, la abstención es límite de información no bug de lógica).
+  - ✅ **Inciso 4.1.1 marcado en `docs/design/PLAN_IMPLEMENTACION.md`** (entre Task 4.1 y 4.2): mecanismo (sembrado de flag, orden allows→update, gaps cerrados), costos (1 re-simulación por step), desvíos (id2decoded, _pick_best_token).
+- **Bugs de implementación corregidos durante la jornada** (registrados en BUG-004, lecciones 3-4): (1) el pase fino actualizaba el schema ANTES de `allows_token` → `self.* == new_state.*` y las cláusulas de cambio/depth no gatillaban — el orden correcto es allows(pre)→update(post); (2) los tokens de test del gap 4 arrancaban con `"` desde VALUE_END (sintaxis inválida: solo `,`/`}`/ws son válidos, ver `expected_first_chars`) — el token real es `', "parameters": {...}'`.
+- **Bloqueos**: Ninguno.
+- **Estado frente al plan**: ✅ Phase 4 arrancada (Task 4.1 completa). Próximo hito: Task 4.2 (smoke test con el modelo REAL — requiere el entorno con Qwen 0.6B).
+
 *Este archivo se actualiza al inicio de cada sesión de trabajo*

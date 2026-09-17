@@ -1399,6 +1399,53 @@ Output ONLY a JSON object with "name" and "parameters" fields. No explanation.""
 - **Acceptance criteria**: con prompt "What is 2+3?" genera JSON con "fn_add_numbers"; timing ~200ms per token
 - **Dependencies**: Phase 3 (all tasks), Phase 2 (Task 2.1)
 
+#### Inciso 4.1.1 — Pase fino post-argmax sobre el token ganador (2026-09-17)
+
+**Qué es**: durante la generación, tras elegir el mejor token (argmax sobre `allowed`),
+el generator re-simula SOLO ese token carácter por carácter con un `SchemaContext`
+FRESCO y las MISMAS 4 cláusulas de `allows_token` (Task 3.4). Si el ganador falla,
+se descarta y el argmax se repite sobre el siguiente mejor candidato. Si `allowed`
+se agota, la generación corta (sin repair, como el ciclo base).
+
+**Por qué existe** (BUG-004, ver BITACORA_BUGS.md): `allows_token` juzga estados
+LÍMITE (commiteado pre-token vs. simulado post-token). Cuando un token cruza varias
+fases, las cláusulas ABSTIENEN (`return True`) y el texto entra de contrabando:
+key inexistente en la 1ra entrada a parameters (`', "parameters": {"zz'`), type
+erróneo en key+value+cierre (`', "b": "x",'` para `"b": number`), cierre de
+parameters sin los required completos en un token, duplicado exacto de key
+(`'"a": 4'` con "a" ya emitida), y el output COMPLETE sin haber pasado por
+PARAMS_OBJECT. Ninguno de esos estados intermedios es visible para una validación
+por-token; solo una re-simulación char-por-char los expone.
+
+**Cómo cierra los gaps** (detalle del mecanismo):
+1. **Sembrado del historial**: el flag `_params_object_seen` (nuevo en
+   SchemaContext, aditivo sobre Task 3.3) se COPIA del schema real al schema fino:
+   el historial previo ("¿ya abrimos parameters?") no puede re-derivarse del token
+   actual. El schema real lo setea en `update()` al pasar por PARAMS_OBJECT.
+2. **Orden crítico por carácter** (el contrato de Fase 3): avanzar la máquina
+   (muta el trial) → `allows_token(char, trial)` con el schema fino TODAVÍA
+   sincronizado al estado PRE-char → recién después `fine.update(trial)`. Si el
+   update fuera primero, `self.* == new_state.*` y las cláusulas de cambio/depth
+   jamás gatillan (primer intento falló exactamente así; ver BUG-004 lección 3).
+3. **Con ese orden**, el reset de `current_key` (""→"a"→"b") se ve como cambio y el
+   prefix check bloquea keys inexistentes/duplicadas (gap 2 + slip); el COLON
+   intermedio expone el tipo esperado antes de que el value se abra (gap 3); el
+   depth 0→1→0 dentro de un token dispara el ⊆ contra `keys_enclosed` del estado
+   intermedio (gap 4); y COMPLETE exige `has_seen_params_object()` (gap del plan).
+
+**Costos**: una re-simulación por step, SOLO del ganador (nunca del set completo);
+en el peor caso N re-simulaciones si los N mejores fallan (cada token multi-fase de
+~20-30 chars en BPE es raro — Qwen 0.6B no tiene tokens así en la práctica). Falla
+cerrada: si un char no avanza en la state machine, se descarta el candidato.
+
+**Desvíos vs. la spec de Task 4.1** (documentados igual que en Task 3.4):
+- El commit del token usa `vocab.id2decoded[best_id]` (NO `vocab.id2token`): el
+  texto que ve la state machine es el DECODIFICADO (mismo desvío 1 del filter).
+- `_pick_best_token` reemplaza el `max(allowed, ...)` inline de la spec para
+  poder descartar candidatos fallidos y reintentar el argmax.
+- `MAX_TOKENS = 200` y el manejo de `allowed` vacío → `break` sin repair: idéntico
+  al ciclo base de la spec.
+
 #### Task 4.2: Single-prompt smoke test
 - **Archivo**: script temporal o test manual
 - **Implementar**: ejecutar generate() con "What is 2+3?" y verificar output

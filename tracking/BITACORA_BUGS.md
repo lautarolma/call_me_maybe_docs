@@ -312,4 +312,34 @@ Cambios concretos:
 
 ---
 
+## BUG-004: abstención de `allows_token` ante estados límite — gaps de validación en las 4 cláusulas
+
+- **Fecha de detección**: 2026-09-17 (análisis cláusula por cláusula tras el diagnóstico del operador)
+- **Severidad**: ALTA (conceptual: el schema NO valida lo que promete en casos de tokens multi-fase; no rompía la suite porque los tests nunca ejercitaban esos tokens)
+- **Estado**: ✅ RESUELTO (pase fino post-argmax — Inciso 4.1.1, Task 4.1)
+- **Archivos afectados**:
+  - `src/decoder/constrained_generator.py` (NUEVO — implementa el pase fino)
+  - `src/decoder/schema_validator.py` (flag `_params_object_seen` + docstring de la residual 2)
+  - `tests/test_constrained_generator.py` (NUEVO — 12 tests, 9 del pase fino)
+  - `docs/design/PLAN_IMPLEMENTACION.md` (Inciso 4.1.1)
+- **Síntoma**: las 4 cláusulas de `allows_token` juzgan estados LÍMITE (commiteado pre-token vs. simulado post-token) y NO ven estados intermedios dentro del token. Cuando un token cruza varias fases (entra a parameters + abre la primera key, o completa key+value+cierre), las cláusulas **abstienen** (`return True` "sin constraint") y el texto pasa de contrabando, quedando aceptado de por vida. Casos concretos:
+  1. **Gap 2 residual 2** (descubierto en este análisis): `', "parameters": {"a'` — el token arranca en depth 0 → cláusula 2 (`self._depth != 1` → abstiene) y la key jamás se valida ni en tokens posteriores (el trigger por cambio no vuelve a disparar: `current_key` siguió siendo "a"). Una key INEXISTENTE (`"zz"`) entraba al schema de por vida.
+  2. **Gap 3**: `', "b": "x",'` (key + value string + cierre para `"b": number`) — el token ni termina en fase de value ni arranca en COLON → la cláusula 3 esquiva ambos triggers y deja pasar un type WRONG.
+  3. **Gap 4**: entrar Y salir de parameters en un token — la cláusula 4 solo ve depths commiteado/simulado; el 0→1→0 intermedio (y el ⊆ de required contra keys_enclosed de ESE punto) le pasa desapercibido.
+  4. **Slip del duplicado exacto**: `'"a": 4'` con "a" ya emitida — la máquina resetea `current_key` a "" y la reconstruye idéntica → cláusula 2 no detecta cambio (limitación residual 1 documentada) → la key duplicada pasa.
+  5. **Gap del plan** (documentado, no bug): COMPLETE sin haber pasado por PARAMS_OBJECT — `'{"name":"fn_empty"}'` se completaba sin el objeto parameters.
+- **Análisis causa raíz**: `allows_token` es PURA por diseño (no muta el schema, lee snapshot commiteado + estado simulado). Ese contrato, correcto para el filter de Task 3.4, solo ve DOS puntos del recorrido por token. Cualquier semantic que dependa de un punto intermedio (cambio de key, cierre de objeto, entrada a parameters) queda fuera del alcance de una validación token-wise y solo puede resolverse re-simulando el token char por char. La abstención (`return True` en las líneas 235/302/336/338/380/382/385/405 del schema_validator) NO es un bug de lógica sino un límite DE INFORMACIÓN del approach por-token.
+- **Resolución**: pase fino post-argmax en el generator (Inciso 4.1.1): tras elegir el mejor token en `_pick_best_token`, se re-simula char por char sobre una copia del estado con un `SchemaContext` FRESCO. En cada carácter: avanzar la máquina → `allows_token(char, trial)` con el schema aún sincronizado al estado PRE-char → recién después `update`. Ese orden reproduce el contrato de Fase 3 y expone los estados intermedios a las mismas 4 cláusulas: el reset de `current_key` se ve como cambio (cierra gaps 2/4/slip), el COLON intermedio expone el tipo (gap 3), el depth 1→0 dispara required (gap 4), y el flag `_params_object_seen` (sembrado desde el schema real, porque el historial previo no se puede re-derivar del token actual) exige parameters en COMPLETE (gap del plan). Costo: 1 re-simulación por step, solo del GANADOR.
+- **Verificación**: 12 tests nuevos (9 de pase fino + 3 end-to-end con FakeModel) → 163 tests suite green, flake8 + mypy limpios.
+
+### Lecciones aprendidas
+
+1. **`return True` en una cláusula NO es "validar", es ABSTENERSE**: cada abstención es un hueco de validación, no una decisión. Al diseñar cláusulas por estados límite, auditar qué token multi-fase puede esquivar CADA trigger — el diagnóstico del operador ("las cláusulas juzgan la frontera, no el interior") era exacto.
+2. **El contrato pre/post de `allows_token` no se puede "forzar" para ver estados intermedios sin violar la pureza**: la solución correcta es una segunda pasada char-por-char con el MISMO verbo (`allows_token`) y el MISMO orden (allows antes de update). El pase fino reusa la lógica existente en vez de duplicarla.
+3. **El orden update→allows es un bug silencioso**: la primera implementación del pase fino actualizaba el schema ANTES de llamar `allows_token` → `self.* == new_state.*` siempre → las cláusulas de cambio/depth jamás gatillaban y TODOS los tests de bloqueo fallaban. El contrato es exactamente el inverso: allows (pre) → update (post).
+4. **Los tokens de test deben partir de estados ALCANZABLES**: el caso gap 4 original arrancaba con `"` desde VALUE_END (sintaxis inválida: `_step_value_end` solo acepta ws/,/}) — el test fallaba por la razón equivocada. El token real equivalente arranca con la coma: `', "parameters": {...}'` (ver `expected_first_chars`).
+5. **El `_params_object_seen` no se puede re-derivar**: si el token actual no contiene el `{` de parameters, el pase fino no puede saber si se abrió antes; el flag del schema REAL (historial acumulado) debe sembrarse en el schema fino.
+
+---
+
 <!-- Próximos bugs se agregan acá abajo con el mismo formato -->
