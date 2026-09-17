@@ -621,3 +621,270 @@ logits → allowed_ids → si vacío: warning + repair → argmax sobre allowed 
 **En una línea:** el filter es un embudo de 3 niveles (primer char → simulación →
 schema) y el loop termina SOLO por COMPLETE o por safety — nunca por EOS.
 
+---
+
+## ESQUEMAS DEL FILTER: NIVEL_1, NIVEL_2 (MAPA 3 BANDAS), CLÁUSULAS Y GAPS (Task 3.4)
+
+### Cómo leer esta sección
+- La sección anterior explica las 3 fases con texto; acá están los ESQUEMAS
+  (los mapas) para verlo todo de una.
+- NIVEL_1 = el pipeline completo (`compute_allowed_ids`, token_filter.py).
+- NIVEL_2 = el MAPA de la state machine en 3 bandas, con la ubicación exacta
+  de las 4 cláusulas del schema (el que hay que saber leer).
+- Después: los árboles de decisión de cada cláusula (C1-C4), un token
+  multi-fase en cámara lenta (D) y los gaps (E).
+
+---
+
+## NIVEL_1 · PIPELINE: EL EMBUDO DE 3 FASES (token_filter.py)
+
+```
+              VOCABULARIO COMPLETO (vocab.tokens_starting_with)
+                     ~151K tokens BPE
+                            │
+                            ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ FASE 1 · PRE-FILTRO por PRIMER carácter                     │
+   │ estado.expected_first_chars() → buckets por char inicial    │
+   │ ("*" = comodín → se saltea: keys/strings libres)            │
+   │ REDUCE: ~151K → ~2K-15K candidatos                          │
+   └──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ FASE 2 · SIMULACIÓN char-por-char (state.simulate)          │
+   │ ¿TODO el token mantiene JSON válido? (sintaxis pura)        │
+   │ Trabaja sobre copia barata (~50ns), NO toca el estado real  │
+   └──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ FASE 3 · POST-FILTRO de schema (allows_token, PURA)         │
+   │ 4 cláusulas ANDed — cada una con su TRIGGER (ver NIVEL_2)   │
+   │   1. name → trie     2. param key → schema                  │
+   │   3. value type      4. params close (required)             │
+   └──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+                        ALLOWED_IDS
+            (vacío → warning + repair, en Task 4.1)
+```
+
+**En una línea:** cada fase deja pasar MENOS tokens; la Fase 2 solo prueba
+sintaxis (barata, por candidato), la Fase 3 exige semántica (schema) y es
+PURA: no muta nada, SOLO decide True/False — el estado real se actualiza
+después, una sola vez, con el token elegido.
+
+---
+
+## NIVEL_2 · MAPA DE LA STATE MACHINE EN 3 BANDAS (el que hay que saber leer)
+
+### Las 3 bandas (roles de la máquina)
+| Banda | Rol | Estados |
+|-------|-----|---------|
+| **1 · ESTRUCTURA** | El esqueleto: llaves, comillas de key, dos puntos, comas. Arma la FORMA del JSON. | ROOT, OBJECT_OPEN, KEY_START, IN_KEY, IN_OBJECT, PARAMS_OBJECT, COMPLETE |
+| **2 · VALUES** | El contenido: strings, numbers, booleans, null. Rellena los values. | IN_STRING_VALUE, IN_NUMBER_VALUE, IN_BOOL_VALUE, IN_NULL_VALUE, ESCAPE_IN_STRING |
+| **3 · RECONEXIÓN** | Los SEMÁFOROS: no acumulan, esperan UN token exacto y deciden hacia dónde sigue el flujo. En el mapa están dibujados EN la banda donde trabajan: KEY_END (espera `:`) y VALUE_END (espera `,` o `}`) reconectan la 1; COLON (espera el arranque del value) baja de la 1 a la 2. | KEY_END, COLON, VALUE_END |
+
+### El mapa (estados REALES de state.py)
+```
+┌────────────────── BANDA 1 · ESTRUCTURA (esqueleto) ──────────────────┐
+│                                                                        │
+│    ROOT ──'{'──▶ OBJECT_OPEN ──'"'──▶ KEY_START ──?──▶ IN_KEY ──'"'──▶ KEY_END  │
+│      ▲                                                               ':'     │
+│      │                                                                ▼      │
+│    COMPLETE ◀─'}'─ IN_OBJECT ◀──────────────── VALUE_END ◀───────┘           │
+│      ▲            ▲    '}' (depth 1) ◈4      (vuelve del value)              │
+│      │            │                                                         │
+│      │ (depth 0)  └──────▶ PARAMS_OBJECT ──'"'──▶ KEY_START ◈2 (depth 1)     │
+│                                                                        │
+└──────────────────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────── BANDA 3 · RECONEXIÓN (semáforo COLON) ────────────────┐
+│                                                                        │
+│     COLON (semáforo) espera el arranque del value:                     │
+│       '"' → string      '-' / '0'-'9' → number      't' / 'f' → boolean      'n' → null  │
+│                                                                        │
+└──────────────────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌──────────────────── BANDA 2 · VALUES (contenido) ────────────────────┐
+│                                                                        │
+│     IN_STRING_VALUE ⇄ ESCAPE_IN_STRING     ◈1 trie del "name" (key name, depth 0)  │
+│     IN_NUMBER_VALUE                        ◈3 tipo del value (depth 1 + fn)  │
+│     IN_BOOL_VALUE / IN_NULL_VALUE          (literales exactos)         │
+│                                                                        │
+│     (cierre del value: '"' / ',' / '}' / ws) ──▶ VALUE_END → vuelve a BANDA 1  │
+│                                                                        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Cómo leerlo (reglas de lectura)
+1. **El texto del JSON viaja en U**: la Banda 1 arma el esqueleto de
+   izquierda a derecha (ROOT → ... → KEY_END); cuando ve `:` (COLON) el
+   flujo BAJA por la Banda 3 hacia la Banda 2 para leer el value; al
+   cerrarse el value (`"` / `,` / `}` / ws) viaja por VALUE_END y SUBE a
+   la Banda 1 (decide `,` → siguiente key, o `}` → cierre del objeto).
+2. **La Banda 3 NO acumula nada**: son semáforos de espera. Si el estado
+   actual es KEY_END, el ÚNICO token que avanza es `:` (o whitespace). Por
+   eso el pre-filtro (Fase 1) pregunta "¿con qué char puede arrancar el
+   próximo token?" → expected_first_chars devuelve JUSTO esos.
+3. **Los ◈ son los puntos donde el schema interviene** (Fase 3):
+   - **◈1** (trie del name): dentro de la Banda 2, pero SOLO cuando la key
+     es `"name"` y depth 0 — el value en curso es el nombre de la función.
+   - **◈2** (param key): en la Banda 1, al entrar a KEY_START/IN_KEY con
+     depth 1 — la key de un parámetro se valida contra el schema.
+   - **◈3** (value type): en la Banda 2, al arrancar el value de un
+     parámetro (depth 1) — el tipo que declara debe coincidir con el schema.
+   - **◈4** (params close): en la flecha `PARAMS_OBJECT ─'}'▶` (depth 1→0) —
+     el `}` de cierre de parameters exige que TODOS los required estén.
+4. **depth es el ascensor entre plantas**: depth 0 = output object (name +
+   parameters), depth 1 = adentro de parameters. Las cláusulas 2, 3 y 4
+   SOLO miran depth 1; la 1 SOLO mira depth 0 con key "name".
+5. **Las cláusulas se "abstienen" (True) cuando el token no pasó por su
+   punto de intervención**: un token que no tocó la key de un parámetro no
+   se valida contra la cláusula 2. Abstener ≠ permitir: significa "no es mi
+   trabajo juzgar este token".
+
+**En una línea:** la máquina tiene 3 bandas con 3 roles (esqueleto / contenido /
+semáforos), y el schema es un guardia que interviene en 4 puntos puntuales
+(◈1-◈4) — el 90% de los tokens pasa por su banda sin que ninguna cláusula
+juzgue, y eso está bien.
+
+---
+
+## C1-C4 · LOS ÁRBOLES DE DECISIÓN DE CADA CLÁUSULA (schema_validator.py)
+
+### C1 · _allows_name_value → el trie contra el value de "name"
+```
+¿El token TERMINA DENTRO del value de "name"?
+(post ∈ _NAME_READ_PHASES ∧ key=="name" ∧ depth 0)
+  │ SÍ ──────────────────────────────► ¿find_node(trie, name_buffer)?
+  │                                     │ hay nodo ──► ✅ PERMITIDO (el name sigue construyéndose)
+  │                                     │ no hay   ──► ❌ BLOQUEADO
+  ▼ NO
+¿El token SALIÓ del value de "name" en este step?
+(pre ∈ _NAME_READ_PHASES ∧ key=="name" ∧ depth 0)
+  │ SÍ ──────────────────────────────► ¿is_complete_name(trie, buffer)?
+  │                                     │ nombre completo ──► ✅ (cerró el name bien)
+  │                                     │ buffer ""/parcial ──► ❌ (ej: '{"name": {' → bloqueado)
+  ▼ NO
+✅ ABSTIENE (el token no tocó el value de "name")
+```
+**Truco:** las DOS ramas leen `new_state.name_buffer` — el buffer que
+acumula LA STATE MACHINE, no el schema. Por eso el schema no re-parsea nada.
+
+### C2 · _allows_param_key → keys de parameters contra el schema
+```
+¿depth == 1? (estamos DENTRO de parameters)
+  │ NO ──► ✅ ABSTIENE (output keys: fuera del scope del schema)
+  ▼ SÍ
+¿Cambió el texto de la key (new_state.current_key != self._current_key)?
+  │ NO ──► ✅ ABSTIENE (este token no escribió la key)
+  ▼ SÍ ──► ¿función seleccionada?
+              │ NO ──► ❌ BLOQUEA TODO (available vacío; refuerzo deliberado)
+              ▼ SÍ
+        available = params de la fn − keys_enclosed COMMITEADO
+              ▼
+        ¿La key quedó ABIERTA (post ∈ KEY_START/IN_KEY)?
+              │ SÍ ──► ¿alguna available empieza con la key? (prefijo)
+              │ NO ──► ¿la key EXACTA está en available? (membership)
+```
+**Por qué el trigger es por CAMBIO y no por fase:** el token `, "b": 3.0`
+lee la key "b" a MITAD de token y termina en IN_NUMBER_VALUE (fase de
+value, no de key) — las fases no lo verían; el cambio current_key "a"→"b"
+es la ÚNICA señal. (Casos reales: ejemplo en slow-motion, diagrama D.)
+
+### C3 · _allows_value_type → el tipo del value de un parámetro
+```
+¿El token TERMINA en fase de value (post ∈ _VALUE_PHASES)?
+  │ SÍ ──► kind = _PHASE_KIND[post]        (la fase declara el tipo)
+  ▼ NO
+¿El token ARRANCÓ en COLON (pre) y el value se abrió+cerró EN ESTE token
+('2,', 'true}', '"x",')?
+  │ SÍ ──► kind = _VALUE_START_KINDS[primer char del texto (lstrip)]
+  │ NO ──► ✅ ABSTIENE
+      ▼ (kind definido)
+¿kind es None? ──► ✅ ABSTIENE ('{' objeto anidado no está en el mapa)
+      ▼
+¿depth == 1 ∧ función seleccionada ∧ el parámetro existe en el schema?
+  │ NO ──► ✅ ABSTIENE (name va por trie; key desconocida = default allow)
+  ▼ SÍ
+kind == param.type ──► ✅ permitido / ❌ bloqueado
+```
+**Por qué es idempotente:** la fase de un value en curso NO cambia token a
+token → continuaciones re-chequeadas dan el mismo veredicto (mismo phase →
+mismo kind). Los tokens largos de un string no se re-evalúan mal.
+
+### C4 · _allows_params_close → el '}' de cierre de parameters
+```
+¿Salimos de depth 1 → depth 0 en este token?
+(self._depth == 1 ∧ new_state.depth == 0)
+  │ NO ──► ✅ ABSTIENE (no es el cierre de parameters;
+  │                     el '}' del output object NO gatilla aquí)
+  ▼ SÍ
+¿función seleccionada?
+  │ NO ──► ❌ BLOQUEADO (conservador: sin función no se sabe qué required exige)
+  ▼ SÍ
+¿params de la fn ⊆ keys_enclosed del estado SIMULADO?
+  │ ⊆ ──► ✅ permitido cerrar
+  │ ⊄ ──► ❌ faltan required keys
+```
+**Detalle fino:** compara contra `new_state.keys_enclosed` (SIMULADO), no el
+commiteado — si el cierre viene junto al value final (`"b": 3}`), ese value
+ya se registró en la copia simulada y cuenta para el ⊆.
+
+---
+
+## D · CÁMARA LENTA: UN TOKEN MULTI-FASE EN UN SOLO STEP (slow-motion)
+
+Token: `, "b": 3.0` — arranca DENTRO del value anterior, cierra, abre key,
+value nuevo. Un solo token BPE recorre 3 bandas. `simulate` lo ve char a char:
+
+```
+ESTADO PRE (commiteado):  phase=IN_NUMBER_VALUE  current_key="a"  depth=1
+                          keys_enclosed={"a"}    fn_seleccionada con params {a: int, b: float}
+
+ char  │ fase tras el char             │ efecto
+───────┼───────────────────────────────┼─────────────────────────────────────────
+ ','   │ VALUE_END                     │ value de "a" cerrado (Banda 2 → 1)
+ ' '   │ VALUE_END                     │ whitespace: no consume
+ '"'   │ KEY_START                     │ arranca key NUEVA (current_key → "")
+ 'b'   │ IN_KEY                        │ current_key="b"  ◈2 GATILLA (cambio "a"→"b")
+ '"'   │ KEY_END                       │ key cerrada; "b" sigue en available (escapa al commiteado)
+ ':'   │ COLON                         │ semáforo: esperando value (Banda 3)
+ ' '   │ COLON                         │ whitespace: no consume
+ '3'   │ IN_NUMBER_VALUE               │ value arranca  ◈3 kind="number"
+ '.'   │ IN_NUMBER_VALUE               │ fracción (prefijo regex OK)
+ '0'   │ IN_NUMBER_VALUE               │ "3.0" cierra sin ',' → sigue IN_NUMBER_VALUE
+
+ESTADO POST (simulado): phase=IN_NUMBER_VALUE  current_key="b"  depth=1
+                        keys_enclosed={"a"}  (¡"b" NO se cerró aún: solo se encuadra al ',')
+```
+
+**Por qué funciona (toda la cadena):**
+- ◈1 no aplica (key="b", no "name").
+- ◈2 sí gatilló en `'b'`: disponible = {a,b} − keys_enclosed commiteado {a}
+  = {b}; key "b" abierta → prefijo OK.
+- ◈3 sí gatilló en `'3'`: post ∈ IN_NUMBER_VALUE → kind "number"; el schema
+  de "b" dice float → ✅.
+- ◈4 no aplica (depth queda 1).
+- El step devuelve True → el generator usa el post-state tal cual (sin
+  re-simular). El estado REAL se actualiza una sola vez.
+
+---
+
+## E · LOS GAPS (limitaciones deliberadas del scope — documentadas en el código)
+
+| # | Gap | Dónde | Por qué existe |
+|---|-----|-------|----------------|
+| 1 | Key duplicada EXACTA reconstruida en un solo token (reset "" + rebuild idéntico) escapa al trigger por cambio | cláusula 2 | El trigger compara textos de key; si el texto final es IGUAL al commiteado, "no hubo cambio" → abstiene. Rarísimo en BPE (necesitaría el token que contenga la key completa con contexto). Test: `test_identical_rebuild_slip_is_documented`. |
+| 2 | Token que ATRAVIESA el value de "name" completo (ej: `'}, "name": "fn_greet",'`) no lo valida contra el trie | cláusula 1 | Ni el pre ni el post están en fase de name: las dos ramas abstienen. Para validarlo habría que re-simular el span del name dentro del token (parser paramétrico = B8 futuro). |
+| 3 | El `}` del OUTPUT object (`{"name":"fn"}` sin "parameters") se completa igual | cláusula 4 | El plan solo gatea el cierre de parameters; el schema NO exige presence del key "parameters". Consecuencia deliberada del plan. |
+| 4 | `', "b": "x",'` (key+value+cierre TODO en un token) esquiva la cláusula 3 | cláusula 3 | Ni termina en fase de value ni arrancó en COLON por pre: no hay de dónde leer el tipo. Requiere parser paramétrico (B8). |
+
+**En una línea:** los gaps son TODOS "el token hizo demasiado en un solo
+step" — para taparlos se necesita un parser paramétrico (B8); en
+vocabularios BPE reales son raros y el plan los acepta como scope.
+

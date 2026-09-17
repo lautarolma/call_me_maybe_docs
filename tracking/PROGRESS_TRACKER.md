@@ -1,7 +1,7 @@
 # PROGRESS_TRACKER.md
 ## Tracking de Avance - Escuela 42
 
-### Última Actualización: 9 septiembre 2026
+### Última Actualización: 17 septiembre 2026
 
 ---
 
@@ -173,5 +173,31 @@
 - **Próximo paso**: Task 3.2 — `src/decoder/trie.py` + `tests/test_trie.py` (build_trie con las 5 funciones reales, valid_next_chars("fn_a") == {"d"}, is_complete_name).
 - **📌 PENDIENTE DIDÁCTICO (anotado 14 sept)**: traducir las 2 regex de numbers de `src/decoder/state.py` (L49-54) a formato entendible — `_NUMBER_PREFIX_RE` ("número a medio terminar", valida PREFIXO incremental char-por-char en `_step_number`) vs `_NUMBER_RE` ("número completo", decide cierre con `,`/`}`/ws). El usuario NO consigue leerlas con claridad: demasiado abstracta la delimitación de casos. Hacer una sección en `TeoricNotes.md` con desglose pieza por pieza (signo, cero líder, fracción, exponente), los casos clave (`2.` admite solo dígitos, `2e` admite digits/+-/terminal, `2.e` DEBE fallar, leading zeros rechazados), y por qué x2 regex en vez de una estricta única.
 - **📌 REVISAR MAÑANA (pendiente de decisión del usuario)**: `docs/notebooklm_sources/state_machine.md` (31 KB, creado 12 sept) está SIN VERSIONAR en el submódulo docs. Decidir si se trackea (`git -C docs add notebooklm_sources/ && git -C docs commit -m "docs: add notebooklm state machine source" && git -C docs push` + bump puntero) o se deja fuera (material transitorio de NotebookLM). El usuario NO decidió al cierre de la jornada — revisar a primera hora sin presión.
+
+---
+
+### 16 septiembre 2026 (jornada de ayer — CIERRE de sesión, retomado tras el 14-sep)
+
+- **Horas trabajadas**: registro de cierre (jornada nocturna).
+- **Avance REAL verificado contra el código y git log** (no de memoria):
+  - ✅ **Task 3.2-3.3 COMPLETAS** (commit `cac725a`): `src/decoder/trie.py` (build_trie, find_node, is_complete_name, valid_next_chars) + `src/decoder/schema_validator.py` (SchemaContext: update, current_expected_type, required_keys_remaining, all_required_present, can_close_params) + tests.
+  - ✅ **Task 3.4 COMPLETA** (commit `ac9cd10`, 850 insertions): `src/decoder/token_filter.py` (compute_allowed_ids — pre-filtro Fase 1 por primer char → simulación Fase 2 → post-filtro Fase 3) + `allows_token` con las 4 cláusulas ANDed (name→trie, param key con trigger por CAMBIO de current_key, value type, params close con keys_enclosed SIMULADO) + `tests/test_token_filter.py` (vocab mock BPE-realista, ~22 tests).
+  - ✅ **Suite completa en verde: 151 tests** (129 baseline + 22 nuevos de test_token_filter), flake8 + mypy limpios (18 archivos), `make lint` OK.
+  - ⚠️ En la jornada se corrigieron 3 fallos del primer run: (1) byte tokens del mock vocab no deben ir a buckets de chars (BYTE_IDS), (2) walk de `"Javier"` (el token ya incluye las comillas de cierre), (3) test de value-type pineaba el gap B8 como comportamiento esperado.
+- **Estado frente al plan**: la Fase 3 del decoder (Tasks 3.1-3.4) quedó COMPLETA — pero sigue el desfasaje acumulado vs cronograma original (14-sep: ATRASADO ~5-6 días). La jornada de ayer cerró las tasks PENDIENTES del decoder, lo que reduce la deuda de Phase 3 a cero. Siguen pendientes Phases 4-6.
+- **Nota del usuario sobre la jornada de ayer**: la percibió como "de poco avance" (en términos de cronograma: solo se recuperó el atraso de Phase 3, no se avanzó sobre Phase 4). Registro la percepción, aunque en volumen de trabajo fueron 2 commits grandes (850 inserciones).
+- **Pendiente para la jornada de hoy**: documentar los ESQUEMAS del filter (NIVEL_1 pipeline, NIVEL_2 MAPA 3 bandas, cláusulas C1-C4, slow-motion, gaps) en TeoricNotes.md + trackeo de sesiones.
+
+### 17 septiembre 2026 (hoy — APERTURA de sesión, 06:00)
+
+- **Horas trabajadas**: 1.5h al momento de registrar (cuentan desde las 06:00).
+- **Avance**:
+  - ✅ Esquemas del filter (Task 3.4) documentados en TeoricNotes.md — NIVEL_1 pipeline, NIVEL_2 MAPA con las 3 bandas (estructura/values/reconexión) + ubicación de cláusulas ◈1-◈4 + reglas de lectura, árboles de decisión C1-C4, slow-motion `, "b": 3.0`, tabla de gaps.
+  - ✅ Trackeo: cierre de la jornada de ayer (16-sep) + apertura de hoy con 1.5h acumuladas.
+  - ✅ CRONOGRAMA_GENERAL actualizado: Phase 2-3 marcadas, estado general "Phase 3 ✅ (decoder 16/09)".
+- **Plan del día** (según SESSION_START_PROTOCOL):
+  - Objetivo principal: cerrar documentación teórica de Phase 3 + arrancar **Task 4.1 (el loop de generación)**.
+  - Prioridad: el usuario está en modo teórico (1h máx por la regla de oro del cronograma) → después implementación.
+- **Estado frente al plan**: AL DÍA con el retrabajo; el desfasaje de Phase 3 quedó saldado ayer — el siguiente hito real es Task 4.1.
 
 *Este archivo se actualiza al inicio de cada sesión de trabajo*

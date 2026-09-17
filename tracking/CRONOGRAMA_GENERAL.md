@@ -7,7 +7,7 @@
 
 | Proyecto | Estado | Días Asignados | Horas Estimadas |
 |----------|--------|----------------|-----------------|
-| Call Me Maybe | Phase 1 ✅ | 12 días | 48h |
+| Call Me Maybe | Phase 3 ✅ (decoder 16/09) | 12 días | 48h |
 | Codection | Sin empezar | 8 días | 32h |
 | Flying | Sin empezar | 5 días | 20h |
 | Buffer/Contingencia | - | 3 días | 12h |
@@ -30,16 +30,16 @@ Entregar los 3 proyectos a tiempo, priorizando:
 #### Semana 1: Foundation + Core (3-7 sept)
 | Día | Fecha | Tarea | Meta | Estado |
 |-----|-------|-------|------|--------|
-| 1 | 3 sept | Verificar avance Phase 1, planificar Phase 2 | Confirmar base sólida | ⬜ |
-| 2 | 4 sept | Phase 2: Vocabulary + Tokenization | Tokenizador funcional | ⬜ |
-| 3 | 5 sept | Phase 2: Continuación + tests | Tests pasando | ⬜ |
-| 4 | 6 sept | Phase 3: Decoder core (state machine) | State machine básica | ⬜ |
-| 5 | 7 sept | Phase 3: Trie + filtro | Trie funcional | ⬜ |
+| 1 | 3 sept | Verificar avance Phase 1, planificar Phase 2 | Confirmar base sólida | ✅ |
+| 2 | 4 sept | Phase 2: Vocabulary + Tokenization | Tokenizador funcional | ✅ |
+| 3 | 5 sept | Phase 2: Continuación + tests | Tests pasando | ✅ |
+| 4 | 6 sept | Phase 3: Decoder core (state machine) | State machine básica | ✅ (Task 3.1 completada) |
+| 5 | 7 sept | Phase 3: Trie + filtro | Trie funcional | ✅ (Tasks 3.2-3.4, 16/09) |
 
 #### Semana 2: Integration + Polish (8-14 sept)
 | Día | Fecha | Tarea | Meta | Estado |
 |-----|-------|-------|------|--------|
-| 6 | 8 sept | Phase 3: Tests + integración | Phase 3 completa | ⬜ |
+| 6 | 8 sept | Phase 3: Tests + integración | Phase 3 completa | ✅ (151 tests, 16/09) |
 | 7 | 9 sept | Phase 4: Function calling | Detección de funciones | ⬜ |
 | 8 | 10 sept | Phase 4: Validación de parámetros | Validación robusta | ⬜ |
 | 9 | 11 sept | Phase 5: Constrained decoding | Decoding restringido | ⬜ |
@@ -93,9 +93,9 @@ Entregar los 3 proyectos a tiempo, priorizando:
 ## 📊 TRACKING DE PROGRESO
 
 ### Call Me Maybe
-- [ ] Phase 1: Foundation ✅ (completada antes del cronograma)
-- [ ] Phase 2: Vocabulary + Tokenization
-- [ ] Phase 3: Decoder Core
+- [x] Phase 1: Foundation ✅ (completada antes del cronograma)
+- [x] Phase 2: Vocabulary + Tokenization ✅
+- [x] Phase 3: Decoder Core ✅ (Tasks 3.1-3.4 completas 16/09, 151 tests en verde)
 - [ ] Phase 4: Function Calling
 - [ ] Phase 5: Constrained Decoding
 - [ ] Phase 6: Integration
@@ -149,5 +149,5 @@ Entregar los 3 proyectos a tiempo, priorizando:
 
 ---
 
-*Última actualización: 3 septiembre 2026*
-*Próxima revisión: 4 septiembre 2026 (inicio de sesión)*
+*Última actualización: 17 septiembre 2026*
+*Próxima revisión: inicio de la próxima sesión de trabajo*
