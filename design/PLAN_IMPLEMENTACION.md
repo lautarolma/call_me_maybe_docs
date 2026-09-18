@@ -1637,6 +1637,87 @@ cerrada: si un char no avanza en la state machine, se descarta el candidato.
 - [ ] `make lint` pasa limpio
 - [ ] `uv run python -m src` funciona end-to-end
 - [ ] Output cumple todos los criterios del subject
+- [ ] Docstrings unificados según Inciso 6.5.1 (Task 6.5)
+
+---
+
+#### Inciso 6.5.1: Docstring Standard (diseño del formato — definir ANTES de aplicar)
+
+> **Fuente normativa verificada en `docs/sources/en.subject.pdf` (IV.1 General Rules)**
+> vía `pdftotext`: *"Your project must adhere to the flake8 coding standard"* y
+> *"Include docstrings in functions and classes following PEP 257 (e.g., Google
+> or NumPy style) to document purpose, parameters, and returns."*
+
+**Decisión de formato**: **PEP 257 + Google style** (más conciso que NumPy para
+este proyecto). El "formato escuela 42" en Python = flake8 + PEP 257; no aplica
+norminette (eso es C).
+
+**Criterios de la unificación (obligatorios)**:
+1. **Idioma: INGLÉS** — todo docstring y comentario inline de `src/` queda en
+   inglés (hoy hay mezcla: models ya en inglés; el decoder del núcleo en
+   español).
+2. **Estructura Google style** (template abajo): summary imperativo de 1 línea;
+   párrafo de contexto SOLO si aporta; secciones `Args:` / `Returns:` / `Raises:`
+   solo si aplican.
+3. **Anotaciones extra PROHIBIDAS salvo relevancia**: no re-explicar lo que el
+   código ya dice (`# append best_id` al lado de `input_ids.append(best_id)` =
+   ruido). Se permite UNA nota breve (1-2 líneas, estilo "Note:") solo cuando
+   documenta un invariante, gotcha o decisión que el código no transmite por sí
+   mismo — p.ej. referencias cruzadas a BUG-00X o incisos (el `[0].tolist()` de
+   BUG-005, el orden allows→update de BUG-004). El nivel de profundidad del
+   operador justifica esas notas SI son concisas y claras.
+4. **Prima la explicación clara**: si una sección no se puede escribir en
+   1 línea clara, es señal de que el código necesita un nombre/estructura mejor
+   (anotarlo, no maquillar).
+5. **Alcance**: `src/` completo (módulos, clases, funciones, métodos, comentarios
+   inline). `tests/` queda EXCLUIDO (el subject no lo evalúa: *"not submitted or
+   graded"*) y la regla MVP prohíbe el polish extra hasta el verde.
+
+**Template Google style (PEP 257)**:
+
+```python
+def pick_best_token(logits, allowed):
+    """Return the highest-scoring token among the allowed ones.
+
+    Args:
+        logits: Logits vector for the full vocabulary.
+        allowed: Set of token ids already validated as legal.
+
+    Returns:
+        int: The winning token id.
+    """
+```
+
+```python
+class DecoderState:
+    """Mutable JSON-syntax state machine, one instance per generation.
+
+    Holds the phase, current key, and housekeeping flags that
+    token_filter and schema_validator read at every step.
+
+    Note: mutation is internal; callers must use update_from_text for
+    atomic transitions (BUG-004: order allows(pre)->update(post) matters).
+    """
+```
+
+---
+
+#### Task 6.5: Docstring unification audit (paso OBLIGATORIO de cierre)
+
+- **Archivos**: todo `src/` (19 archivos, ~92 docstrings a unificar)
+- **Implementar** (en orden, SIN tocar lógica):
+  1. Aplicar el estándar del **Inciso 6.5.1** (diseño ya definido aquí,
+     ANTES de tocar código — requisito del operador).
+  2. Auditar archivo por archivo `src/`: inventariar docstrings en español y
+     comentarios inline a traducir/reformular.
+  3. Reescribir cada docstring al formato: inglés + summary imperativo +
+     Args/Returns/Raises + nota breve solo si aporta.
+  4. Verificar: `uv run pytest tests/` (164 green) + `flake8` + `mypy` limpios;
+     `grep -rn -iE "devuelve|retorna|recibe|toma|crea|genera" src/` = 0 hits.
+- **Acceptance criteria**: 100% de docstrings de `src/` en inglés, PEP 257 +
+  Google style; cero anotaciones obvias; suite y lint intactos; el audit queda
+  registrado en PROGRESS_TRACKER.
+- **Dependencies**: Tasks 6.1-6.4 (se ejecuta al final, antes del commit final).
 
 ---
 

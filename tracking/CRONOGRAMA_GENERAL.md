@@ -99,6 +99,7 @@ Entregar los 3 proyectos a tiempo, priorizando:
 - [~] Phase 4: Function Calling (Task 4.1 ✓ + Inciso 4.1.1 + BUG-005 ✓ 18/09; Task 4.2-4.3 pendientes)
 - [ ] Phase 5: Constrained Decoding
 - [ ] Phase 6: Integration
+- [ ] Task 6.5 (OBLIGATORIO, último paso): Docstring unification audit — Inciso 6.5.1 (PEP 257 + Google style, inglés; ~92 docstrings, decoder en español). Ver PLAN_IMPLEMENTACION + CRONOGRAMA_TRABAJO Día 21.
 - [ ] Phase 7: Polish
 
 ### Flying

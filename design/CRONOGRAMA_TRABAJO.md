@@ -520,7 +520,15 @@ gantt
 
         [ ] Task 6.3: Completar `tests/` para TODOS los módulos: edge cases, error paths, coverage ≥70% global y ≥80% del decoder; verificar performance: pipeline completo <5 min en CPU (revisá que `tokens_starting_with` esté pre-indexado)
         [ ] Task 6.4: flake8 + mypy 100% limpios (`make lint` sin warnings); ejecución final end-to-end `uv sync && uv run python -m src` con exit 0; chequear los 3 quality bars del subject (100% JSON válido 11/11, accuracy ≥90%, <5 min en CPU); verificar DoD Phase 6 completo
-        [ ] (Opcional si sobra tiempo) Commit final y revisión del repo
+        [ ] Task 6.5 (OBLIGATORIO, ÚLTIMO): Docstring unification audit — aplicar el
+            estándar del Inciso 6.5.1 (PEP 257 + Google style, INGLÉS, sin anotaciones
+            obvias; notas solo si aportan, concisas) a todo `src/` (~92 docstrings,
+            19 archivos; el decoder del núcleo está en español). NO tocar lógica.
+            Verificar: suite 164 green + flake8 + mypy + `grep -iE
+            "devuelve|retorna|recibe|crea|genera" src/` = 0 hits. Registro en tracker.
+            Diseño del formato ya definido en PLAN_IMPLEMENTACION, Inciso 6.5.1
+            (fuente normativa: subject.pdf IV.1 vía pdftotext).
+        [ ] Commit final y revisión del repo (después de Task 6.5, no opcional)
 
     Entregable del Día: **MVP ENTREGADO EN PLAZO** — Definition of Done Phase 6 cerrado y los 10 KPIs de la sección 1 en verde. El proyecto pasa la evaluación del subject: `uv sync` + `uv run python -m src` funciona solo.
 
