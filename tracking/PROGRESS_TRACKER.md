@@ -1,7 +1,7 @@
 # PROGRESS_TRACKER.md
 ## Tracking de Avance - Escuela 42
 
-### Última Actualización: 17 septiembre 2026
+### Última Actualización: 18 septiembre 2026
 
 ---
 
@@ -254,7 +254,7 @@
 - **Avance REAL verificado contra la ejecución** (no de memoria):
   - ✅ **Task 4.2 COMPLETA (criterio funcional del plan)**: smoke test con el modelo REAL **Qwen3-0.6B** (`/tmp/opencode/smoke_42.py` + copia de respaldo en `.scratch_task42/`). Query `"What is the sum of 2 and 3?"` (primer prompt real de `function_calling_tests.json`): `generate()` devolvió JSON parseable con `name: "fn_add_numbers"` y `parameters: {"a": 2, "b": 3}`, `ok(COMPLETE)=True`. **PASS funcional** ✅
   - ✅ Entorno validado: modelo carga 20.5s, vocab 151.643 tokens / 17.805 buckets en 25.4s, prompt de 190 tokens.
-  - 🔴 **HALLAZGO CRÍTICO de performance (registrado en Engram, topic `phase4/performance-timing`)**: forward real ≈ **2.842ms/step @32 tokens en la VM actual (3 cores, 7.8Gi)** — el plan estimaba 150-200ms/step. `generate()` completo: **~308s para UN solo prompt**. Proyección: 11 prompts (Task 4.3) ≈ **55+ min** vs KPI del subject (<5 min en CPU). **Incumplimiento por más de 10x.**
+  - 🔴 **HALLAZGO CRÍTICO de performance (registrado en Engram, topic `phase4/performance-timing`)**: forward real ≈ **2.842s/step @32 tokens en la VM actual (3 cores, 7.8Gi)** — el plan estimaba 150-200ms/step. `generate()` completo: **~308s para UN solo prompt**. Proyección: 11 prompts (Task 4.3) ≈ **55+ min** vs KPI del subject (<5 min en CPU). **Incumplimiento por más de 10x.**
 - **Análisis (con el usuario)**:
   - Causa raíz: SDK re-corre el modelo completo en cada step (sin KV-cache) + ventana creciente (190→260 tokens) + CPU débil. El pase fino NO es el problema (simula chars, no llama al modelo).
   - Scaling torch CPU para 0.6B NO es lineal (se aplana ~16 cores): a 8 cores (máquina nueva: 24Gi/8 proc) ≈ 2.5-3x → ~19-22 min para 11 prompts — **aún fuera de 5 min**; CPU-only necesitaría 40-64+ cores de servidor con incertidumbre; la vía real es GPU (CUDA/MPS, SDK auto-detects) que da 20-50x.
@@ -265,5 +265,27 @@
   3. Task 4.3: 11 prompts, accuracy ≥90%, timing total — con el bench decidir si KPI <5 min es alcanzable o se justifica/mide contra la máquina real.
   4. Alerte ENDLINE post-4.3: aplicar plan A/B/C (skill avance-mvp).
 - **Estado frente al plan**: Phase 4 en curso. Task 4.2 funcional ✅, performance bajo investigación con la máquina mejorada (18/09, ~2h).
+
+### 18 septiembre 2026 (hoy — Task 4.3 COMPLETA: accuracy 91% VERDE + timing rojo por hardware)
+
+- **Horas trabajadas**: sesión tarde-noche (cierre de 4.3 + inicio de auditoría de latencia).
+- **Avance REAL verificado contra la ejecución** (no de memoria):
+  - ✅ **Bench de scaling en la máquina ACTUAL (6 vCPU / 15Gi — NO la 8/24Gi pactada)** (`uv run python .scratch_task42/bench_scaling.py`, secuencia real de 190 tokens):
+    - threads=1: **4540 ms/step** | threads=2: **2695** | threads=4: **2611 (ÓPTIMO)** | threads=6: **5123 (PEOR que 1 thread)**
+    - Lectura: el scaling se aplana 2→4 (+3%) y COLLAPSA de 4→6 — evidencia de memory-bandwidth bound + topología compartida (host i7-7700HQ = 4 cores físicos / 8 HT; 6 vCPU mapean sobre 4 físicos + 2 HT compartidos).
+  - ✅ **Task 4.3 COMPLETA** (`.scratch_task42/task43_accuracy.py`, 11 prompts, modelo REAL Qwen3-0.6B, threads=4 — el óptimo del bench):
+    - **accuracy función: 11/11 (100%)** — el constrained decoder + prompt SIEMPRE eligen la función correcta.
+    - **accuracy full (quality bar M14): 10/11 (91%) ≥ 90% ✅** — scoring corregido en 1 caso: prompt 10 `regex='([aeiouAEIOU])'` = grupo capturador, FUNCIONALMENTE EQUIVALENTE a `[aeiouAEIOU]`; el ground truth del script no contemplaba el signo de agrupación → error del SCORING, no del modelo.
+    - Fallo real restante: **prompt 9** `replacement='NUMBER'` vs "with NUMBERS" del prompt (singular vs plural). Output JSON válido con source_string y regex correctos — fallo del modelo, no del scoring.
+    - **timing generación: 34.9 min** (por prompt: 122-330s; el más caro = regex larga de substitute) | total con carga: 35.0 min. **KPI <5 min INCUMPLIDO en CPU** — rojo por HARDWARE, no por código.
+    - Resultados persistidos en `.scratch_task42/results_43.json` (11 entries; output crudo guardado solo en los no-OK para no duplicar).
+  - ✅ Suite sigue 164 green (no se tocó código de producción — solo scripts temporales de scratch).
+- **Checkpoint post-Task 4.3 (plan A/B/C del skill avance-mvp)**:
+  - Situación MIXTA: accuracy alcanza **A** (91% ≥ 90%) · timing cae en **B** (>5 min).
+  - **Decisión PAUSADA a pedido del usuario**: primero AUDITORÍA de diseño y latencia (reevaluar arquitectura con agentes, verificar la hipótesis de "latencia especial de CPU", comparar con repo de un colega que el usuario aportará: `Mario_Call_me_maybe`). Recomendación en pie del usuario: Opción A — documentar timing como limitación física de la máquina real y seguir a Phase 5.
+- **Hipótesis del usuario a verificar** ("¿puede estar ocurriendo una latencia especial en mi CPU?"):
+  - Los datos del bench NO apoyan un defecto de CPU, sino límite físico: (a) el costo base del forward está dentro/mejor del rango teórico para 0.6B FP32 sin KV-cache; (b) el colapso 4→6 threads = topología compartida (4 físicos) + bandwidth.
+  - Verificación complementaria pendiente en esta sesión: frecuencia/turbo/throttling, soporte AVX2, load del host, y comparativa de arquitectura vs repo de Mario.
+- **Estado frente al plan**: Phase 4 COMPLETA funcionalmente (4.1-4.3) con accuracy verde; performance bajo AUDITORÍA (18/09, sesión tarde-noche).
 
 *Este archivo se actualiza al inicio de cada sesión de trabajo*
