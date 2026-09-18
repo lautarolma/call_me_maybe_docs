@@ -7,7 +7,7 @@
 
 | Proyecto | Estado | Días Asignados | Horas Estimadas |
 |----------|--------|----------------|-----------------|
-| Call Me Maybe | Phase 3 ✅ (decoder 16/09) | 12 días | 48h |
+| Call Me Maybe | Phase 4 en curso (Task 4.1 + BUG-005, 18/09) | 12 días | 48h |
 | Codection | Sin empezar | 8 días | 32h |
 | Flying | Sin empezar | 5 días | 20h |
 | Buffer/Contingencia | - | 3 días | 12h |
@@ -96,7 +96,7 @@ Entregar los 3 proyectos a tiempo, priorizando:
 - [x] Phase 1: Foundation ✅ (completada antes del cronograma)
 - [x] Phase 2: Vocabulary + Tokenization ✅
 - [x] Phase 3: Decoder Core ✅ (Tasks 3.1-3.4 completas 16/09, 151 tests en verde)
-- [ ] Phase 4: Function Calling
+- [~] Phase 4: Function Calling (Task 4.1 ✓ + Inciso 4.1.1 + BUG-005 ✓ 18/09; Task 4.2-4.3 pendientes)
 - [ ] Phase 5: Constrained Decoding
 - [ ] Phase 6: Integration
 - [ ] Phase 7: Polish

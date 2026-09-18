@@ -11,6 +11,8 @@
    - Verificación de fecha vs cronograma
    - Cálculo de avance esperado vs real
    - Recomendaciones específicas para el día
+3. **⚠️ ALERTA ENDLINE OBLIGATORIA:** cargar la skill **avance-mvp** y
+   emitir la alerta compacta (≤7 líneas) ANTES de empezar a trabajar.
 
 ### Al final de cada sesión:
 1. **Actualiza PROGRESS_TRACKER.md** con:
@@ -29,6 +31,47 @@
 
 ---
 
+## 🛎 ALERTA ENDLINE — PREMISA EVALUABLE EN CADA FRONTERA
+
+> **Regla de oro: cada apertura de jornada, cada cierre/apertura de task y
+> el hito Task 4.3 disparan la evaluación de avance CONTRA EL DEADLINE.**
+> Implementación: skill `avance-mvp` (`.opencode/skills/avance-mvp/SKILL.md`).
+> La emisión de la alerta es OBLIGATORIA y COMPACTA (≤7 líneas) para no
+> ensuciar la lectura.
+
+### El endline en números (vigente al 18-sep-2026)
+
+| Proyecto | Deadline | Estado real | Riesgo |
+|----------|----------|-------------|--------|
+| **call_me_maybe (MVP)** | **21/09/2026** | Phase 4 en curso (Task 4.1 ✓, 4.2-4.3 ⬜) | 🔴 ALTO: ~3 días de atraso; sin margen |
+| Flying | debía 15-21/09 | ⬜ no iniciado | 🔴 ya corrido |
+| Codection | 22-29/09 | ⬜ no iniciado | 🟠 depende de los otros |
+| Cronograma general 3 proyectos | 03/10/2026 | en riesgo | 🔴 estimado real ~7-10/10 |
+
+### Orden de ataque VIGENTE (inamovible hasta aviso)
+
+```
+call_me_maybe: 4.2 smoke real → 4.3 accuracy ≥90% → 5.1 validador → 5.2-5.3 pipeline
+               → 6.4 DoD (6.1/6.2/6.3 recortables si aprieta) →  [MVP VERDE]
+luego: Flying → Codection (alcance a renegociar según cierre de call_me_maybe)
+```
+
+### Puntos de foco (qué NO perder de vista)
+
+1. **Task 4.2**: PRIMER contacto con Qwen3-0.6B real — thinking tokens
+   (`<|begin_of_thought|>`), timing ~200ms/step, RAM/CPU.
+2. **Task 4.3**: accuracy ≥90% (≥10/11) + <5 min total. La tarea MÁS incierta.
+3. **Frontera post-4.3 = CHECKPOINT DE RE-EVALUACIÓN** (plan A/B/C en la skill):
+   - **A** (≥90%): seguir orden → objetivo 21-22/09.
+   - **B** (80-89% o >5min): 1 iteración acotada de prompts (≤0.5 jornada),
+     decidir el MISMO día con el usuario.
+   - **C** (<80% o bloqueante): escalar al usuario el MISMO día; renegociar
+     alcance/deadline. No arrastrar el problema a la jornada siguiente.
+4. **MVP = Phases 1-6 SOLO** (31 tasks). Phase 7/BONUS, refactors fuera de
+   plan y documentación teórica extra están PROHIBIDOS hasta MVP verde.
+
+---
+
 ## 📊 ARCHIVOS CLAVE
 
 | Archivo | Propósito | Cuándo usar |
@@ -40,23 +83,16 @@
 
 ---
 
-## 🎯 CHECKPOINTS IMPORTANTES
+## 🎯 CHECKPOINTS (VIGENTES — el detalle vive en la 🛎 ALERTA ENDLINE)
 
-### 7 septiembre (Fin Semana 1):
-- Call Me Maybe: Phase 2-3 en progreso
-- Horas acumuladas: 20h
+| Checkpoint | Meta | Estado real |
+|------------|------|-------------|
+| **21/09/2026** | call_me_maybe MVP (Phases 1-6) entregado | 🟡 en riesgo — Phase 4 en curso |
+| **post-Task 4.3** | Checkpoint accuracy → plan A/B/C | ⬜ pendiente (disparador obligatorio) |
+| **03/10/2026** | 3 proyectos entregados (Flying + Codection) | 🟡 en riesgo — sin iniciar |
 
-### 14 septiembre (Fin Fase 1):
-- Call Me Maybe: **COMPLETO**
-- Horas acumuladas: 48h
-
-### 21 septiembre (Fin Fase 2):
-- Flying: **COMPLETO**
-- Horas acumuladas: 68h
-
-### 29 septiembre (Fin Fase 3):
-- Codection: **COMPLETO**
-- Horas acumuladas: 100h
+> Los checkpoints históricos (7/14/29 sept) quedaron obsoletos con el desfase
+> real del proyecto; no usarlos como referencia.
 
 ---
 

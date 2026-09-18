@@ -228,4 +228,22 @@
 - **Bloqueos**: Ninguno.
 - **Estado frente al plan**: ✅ Phase 4 arrancada (Task 4.1 completa). Próximo hito: Task 4.2 (smoke test con el modelo REAL — requiere el entorno con Qwen 0.6B).
 
+### 18 septiembre 2026 (hoy — BUG-005 + sistema de alerta endline)
+
+- **Horas trabajadas**: jornada de cierre de bug + sistema de seguimiento.
+- **Avance REAL verificado contra el código y la suite** (no de memoria):
+  - ✅ **BUG-005 RESUELTO** (dimensiones del flujo de generación): `Small_LLM_Model.encode()` devuelve tensor 2D [1,N] → el `.tolist()` directo dejaba `list[list[int]]` → `get_logits_from_input_ids` armaba tensor 3D y crasheaba con TypeError. Fix: `encode(prompt)[0].tolist()` + `prompt_length` guardado ANTES del loop (elimina el re-encode final). Tests: mock `_FakeTensor` ahora replica la forma 2D + assert de contrato en `FakeModel.get_logits` + test de regresión N-tokens (prompt de 3 ids inexistentes). **Suite: 164 green**, flake8 + mypy limpios. BITACORA_BUGS (BUG-005) + concordancia en PLAN_DIDACTICO y PLAN_IMPLEMENTACION (también se enlazó el desvío id2decoded donde el didáctico aún enseñaba id2token).
+  - ✅ **Commits**: docs `b7ea228` + main `40b6cac` (bump) + `d607d4e` (fix), pusheados.
+- **Evaluación de avance vs cronograma** (pedida por el usuario):
+  - Real: Phases 1-3 + Task 4.1 (~20/31 tasks) · didáctico Empezando M10 (teoría al día) · suite 164 green.
+  - Plan nominal: hoy Día 20 esperaba Phase 6 → **atraso ~3 días en implementación**.
+  - Restan 9 tareas (4.2, 4.3, 5.1-5.3, 6.1-6.4) ≈ 36-38h vs ~20-24h disponibles hasta 21/09 → **riesgo ALTO** de entregar 23-24/09 si no se trabaja el finde (19-20/09, buffer).
+  - Cascada: Flying (debía iniciar 15/09) y Codection sin arrancar → cronograma general (03/10) en riesgo; estimado real ~07-10/10.
+- **Sistema ALERTA ENDLINE creado** (pedido del usuario: premisa evaluable en cada frontera):
+  - Inciso **🛎 ALERTA ENDLINE** en `GUIA_RAPIDA.md`: tabla de endlines, orden de ataque vigente, puntos de foco, MVP = Phases 1-6 SOLO.
+  - **Skill `avance-mvp`** (`.opencode/skills/avance-mvp/SKILL.md`, versionada en el repo): trigger en apertura de jornada, frontera de task y post-Task 4.3; salida COMPACTA ≤7 líneas; plan A/B/C post-4.3 (A: ≥90% seguir · B: 80-89% iterar prompts ≤0.5 jornada · C: <80% escalar el MISMO día).
+  - Checkpoints viejos de GUIA_RAPIDA reemplazados por versión vigente; CRONOGRAMA_GENERAL actualizado a "Phase 4 en curso (18/09)".
+- **Bloqueos**: Ninguno.
+- **Estado frente al plan**: Phase 4 en curso (Task 4.1 + BUG-005 ✓). **Próximo hito: Task 4.2 — smoke test con el modelo real Qwen3-0.6B** (primer contacto real; sin bloqueos conocidos desde el fix).
+
 *Este archivo se actualiza al inicio de cada sesión de trabajo*
