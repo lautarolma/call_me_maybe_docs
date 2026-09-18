@@ -247,3 +247,23 @@
 - **Estado frente al plan**: Phase 4 en curso (Task 4.1 + BUG-005 ✓). **Próximo hito: Task 4.2 — smoke test con el modelo real Qwen3-0.6B** (primer contacto real; sin bloqueos conocidos desde el fix).
 
 *Este archivo se actualiza al inicio de cada sesión de trabajo*
+
+### 18 septiembre 2026 (hoy — CIERRE: Task 4.2 smoke PASS funcional + hallazgo de performance)
+
+- **Horas trabajadas**: sesión tarde (~2h).
+- **Avance REAL verificado contra la ejecución** (no de memoria):
+  - ✅ **Task 4.2 COMPLETA (criterio funcional del plan)**: smoke test con el modelo REAL **Qwen3-0.6B** (`/tmp/opencode/smoke_42.py` + copia de respaldo en `.scratch_task42/`). Query `"What is the sum of 2 and 3?"` (primer prompt real de `function_calling_tests.json`): `generate()` devolvió JSON parseable con `name: "fn_add_numbers"` y `parameters: {"a": 2, "b": 3}`, `ok(COMPLETE)=True`. **PASS funcional** ✅
+  - ✅ Entorno validado: modelo carga 20.5s, vocab 151.643 tokens / 17.805 buckets en 25.4s, prompt de 190 tokens.
+  - 🔴 **HALLAZGO CRÍTICO de performance (registrado en Engram, topic `phase4/performance-timing`)**: forward real ≈ **2.842ms/step @32 tokens en la VM actual (3 cores, 7.8Gi)** — el plan estimaba 150-200ms/step. `generate()` completo: **~308s para UN solo prompt**. Proyección: 11 prompts (Task 4.3) ≈ **55+ min** vs KPI del subject (<5 min en CPU). **Incumplimiento por más de 10x.**
+- **Análisis (con el usuario)**:
+  - Causa raíz: SDK re-corre el modelo completo en cada step (sin KV-cache) + ventana creciente (190→260 tokens) + CPU débil. El pase fino NO es el problema (simula chars, no llama al modelo).
+  - Scaling torch CPU para 0.6B NO es lineal (se aplana ~16 cores): a 8 cores (máquina nueva: 24Gi/8 proc) ≈ 2.5-3x → ~19-22 min para 11 prompts — **aún fuera de 5 min**; CPU-only necesitaría 40-64+ cores de servidor con incertidumbre; la vía real es GPU (CUDA/MPS, SDK auto-detects) que da 20-50x.
+- **DECISIÓN DEL USUARIO**: la VM pasa a **8 procesadores / 24Gi RAM** (realista al dispositivo de entrega) — "mejorar hardware no es la solución", se testea en condiciones reales y se decide el KPI con evidencia. Pendiente: correr `bench_scaling.py` (resguardado en `.scratch_task42/`) en la máquina nueva ANTES de Task 4.3.
+- **Checkpoint de retorno** (la sesión se cierra para reiniciar con más recursos):
+  1. Al volver: máquina con 8 cores/24Gi → correr `uv run python .scratch_task42/bench_scaling.py` (bench de threads 1-8) ≈ 2-3 min.
+  2. Re-correr smoke (`smoke_42.py`) si hace falta revalidar entorno.
+  3. Task 4.3: 11 prompts, accuracy ≥90%, timing total — con el bench decidir si KPI <5 min es alcanzable o se justifica/mide contra la máquina real.
+  4. Alerte ENDLINE post-4.3: aplicar plan A/B/C (skill avance-mvp).
+- **Estado frente al plan**: Phase 4 en curso. Task 4.2 funcional ✅, performance bajo investigación con la máquina mejorada (18/09, ~2h).
+
+*Este archivo se actualiza al inicio de cada sesión de trabajo*
