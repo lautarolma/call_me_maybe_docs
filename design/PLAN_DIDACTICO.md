@@ -1074,13 +1074,18 @@ Nuestro `vocab_loader.py` maneja esto: si un token no se puede decodificar a UTF
 ```python
 # Flujo completo:
 prompt = "What is 2+3?"
-input_ids = model.encode(prompt)  # BPE tokeniza: [5765, 318, 220, 17, 10, 18, 30]
+# ⚠ BUG-005: encode() devuelve tensor 2D [1, N] → [0].tolist() aplana;
+#   sin el [0] quedaría list[list[int]] y get_logits crashearía (tensor 3D).
+input_ids = model.encode(prompt)[0].tolist()  # BPE tokeniza: [5765, 318, 220, 17, 10, 18, 30]
 #                                        (tokens aproximados)
 
 # En cada step del loop:
 logits = model.get_logits_from_input_ids(input_ids)  # ~151K floats
 best_id = argmax(allowed)  # Elegimos el mejor token permitido
 token_text = vocab.id2token[best_id]  # "Ġthe" por ejemplo
+# ⚠ EJEMPLO TRAMPOSO: "Ġthe" (espacio BPE) ROMPE la state machine — el
+#   código real NO lo commitea: usa vocab.id2decoded (texto decodificado
+#   "the"). Desvío documentado en el Inciso 4.1.1 del plan de implementación.
 # Procesamos "Ġthe" char por char a través de la state machine
 ```
 
@@ -1717,7 +1722,14 @@ def generate(
     Retorna: (texto_generado, éxito)
     """
     # 1. Tokenizar el prompt
-    input_ids = model.encode(prompt).tolist()
+    # ⚠ BUG-005: encode() devuelve tensor 2D [1, N]; [0].tolist() lo aplana
+    # a list[int] (list[list[int]] rompería get_logits_from_input_ids abajo).
+    input_ids = model.encode(prompt)[0].tolist()
+    # Longitud del prompt ANTES del loop: durante la generación input_ids
+    # solo crece con los tokens generados, así el slice del final separa
+    # prompt de generados sin re-encodear (len() sobre un tolist 2D cuenta
+    # FILAS, no tokens — BUG-005).
+    prompt_length = len(input_ids)
 
     # 2. Estado inicial
     state = DecoderState()
@@ -1736,13 +1748,17 @@ def generate(
             break
 
         # 3c. Elegir el mejor token permitido
+        # (el código real usa _pick_best_token + pase fino — Inciso 4.1.1)
         best_id = max(allowed, key=lambda tid: logits[tid])
 
         # 3d. Agregar a la secuencia
         input_ids.append(best_id)
 
         # 3e. Actualizar estado
-        token_text = vocab.id2token[best_id]
+        # ⚠ DESVÍO (Inciso 4.1.1 del plan): el código real commitea con
+        # vocab.id2decoded (texto DECODIFICADO que ve la state machine), NO
+        # vocab.id2token (token byte-mapeado 'Ġthe' → rompe la sintaxis).
+        token_text = vocab.id2decoded[best_id]
         state.update_from_text(token_text)
 
         # 3f. Actualizar schema context
@@ -1752,8 +1768,8 @@ def generate(
         if state.phase == DecoderPhase.COMPLETE:
             break
 
-    # 4. Extraer solo los tokens generados (no el prompt)
-    prompt_length = len(model.encode(prompt).tolist())
+    # 4. Extraer solo los tokens generados (no el prompt): prompt_length ya
+    # quedó fijado en el paso 1 (antes de que input_ids creciera con best_id).
     generated_ids = input_ids[prompt_length:]
     generated = model.decode(generated_ids)
 

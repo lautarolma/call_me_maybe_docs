@@ -387,7 +387,7 @@ Para cada step del loop de generación:
    c. Break con resultado parcial
 4. best_id = argmax(logits[i] for i in allowed_ids)  # softmax-free, solo max logit
 5. current_ids.append(best_id)
-6. token_text = vocab.id2token[best_id]
+6. token_text = vocab.id2token[best_id]  # ⚠ desvío en el código real: id2decoded (Inciso 4.1.1)
 7. current_state.update_from_text(token_text)  # char-by-char
 8. current_schema.update(current_state)  # refresca expected types
 9. Si current_state == COMPLETE: break
@@ -1371,7 +1371,8 @@ Output ONLY a JSON object with "name" and "parameters" fields. No explanation.""
       Returns:
           (generated_text, success_flag)
       """
-      input_ids = model.encode(prompt).tolist()
+      input_ids = model.encode(prompt)[0].tolist()  # ⚠ BUG-005: SDK 2D → aplanar
+      prompt_length = len(input_ids)                # pre-loop (evita re-encode)
       state = DecoderState()
       schema = SchemaContext(functions)
 
@@ -1387,13 +1388,13 @@ Output ONLY a JSON object with "name" and "parameters" fields. No explanation.""
           best_id = max(allowed, key=lambda tid: logits[tid])
           input_ids.append(best_id)
 
-          token_text = vocab.id2token[best_id]
+          token_text = vocab.id2decoded[best_id]  # ⚠ desvío Inciso 4.1.1: DECODIFICADO
           state.update_from_text(token_text)
 
           if state.phase == DecoderPhase.COMPLETE:
               break
 
-      generated = model.decode(input_ids[len(model.encode(prompt).tolist()):])
+      generated = model.decode(input_ids[prompt_length:])  # ⚠ BUG-005: prompt_length pre-loop
       return generated, state.phase == DecoderPhase.COMPLETE
   ```
 - **Acceptance criteria**: con prompt "What is 2+3?" genera JSON con "fn_add_numbers"; timing ~200ms per token
@@ -1445,6 +1446,14 @@ cerrada: si un char no avanza en la state machine, se descarta el candidato.
   poder descartar candidatos fallidos y reintentar el argmax.
 - `MAX_TOKENS = 200` y el manejo de `allowed` vacío → `break` sin repair: idéntico
   al ciclo base de la spec.
+
+> ⚠ **Corrección BUG-005 (2026-09-18)**: la spec original (`input_ids =
+> model.encode(prompt).tolist()`) asumía un tensor 1D; el SDK real devuelve 2D
+> `[1, N]` → `.tolist()` deja `list[list[int]]` y `get_logits_from_input_ids`
+> crashea con TypeError (tensor 3D + `float(list)`). Corrección aplicada en
+> spec y código: `encode(prompt)[0].tolist()` + `prompt_length = len(input_ids)`
+> guardado ANTES del loop (elimina además el re-encode final del prompt).
+> Detalle completo en `BITACORA_BUGS.md` BUG-005.
 
 #### Task 4.2: Single-prompt smoke test
 - **Archivo**: script temporal o test manual

@@ -342,4 +342,34 @@ Cambios concretos:
 
 ---
 
+## BUG-005: bug de dimensiones en el flujo de generación — `encode().tolist()` asumía tensor 1D y el SDK devuelve 2D
+
+- **Fecha de detección**: 2026-09-18 (hipótesis del operador + verificación independiente con torch real)
+- **Severidad**: ALTA (bloqueaba la generación con el modelo REAL: crash al primer step; invisible en CI porque el mock replicaba un tensor 1D)
+- **Estado**: ✅ RESUELTO
+- **Archivos afectados**:
+  - `src/decoder/constrained_generator.py` (fix: `[0].tolist()` + `prompt_length` pre-loop)
+  - `tests/test_constrained_generator.py` (mock _FakeTensor 2D + assert de contrato + test N-tokens)
+  - `docs/design/PLAN_DIDACTICO.md` (L1720/L1756-57 reescritos)
+  - `docs/design/PLAN_IMPLEMENTACION.md` (spec Task 4.1 L1374/L1396 + nota BUG-005)
+- **Síntoma**: `model.encode(prompt).tolist()` con el SDK real produce `list[list[int]]` (`[[id1,...,idN]]`) porque `Small_LLM_Model.encode()` arma `torch.tensor([ids])` → tensor **2D [1, N]** (docstring del SDK L78: "return a 2-D input_ids tensor"). Ese resultado se pasaba a `get_logits_from_input_ids()` que espera `list[int]` plano y hace `torch.tensor([input_ids])` → tensor **3D [1,1,N]** → `out.logits[0, -1]` devuelve `[N, V]` → cada elemento es una FILA → `[float(x) for x in logits]` lanza `TypeError: float() argument must be a string or a real number, not 'list'`. Además: `prompt_length = len(model.encode(prompt).tolist())` contaba **filas** (=1), no tokens → el slice final arrastraba/omitía tokens del prompt; y `input_ids.append(best_id)` mezclaba un int en una lista de listas (`torch.tensor` → `TypeError: not a sequence`).
+- **Análisis causa raíz**:
+  1. Supuesto falso compartido: código Y docs (didáctico L1718 visual: `input_ids = [5765, 318, ...]` plano; plan L1374) asumían que `tolist()` aplana un tensor 1D. El SDK real es 2D.
+  2. El único testigo de la forma real era el docstring del propio SDK (L78) — nunca se testearon las FORMAS del contrato, solo el comportamiento de alto nivel del mock.
+  3. El mock `_FakeTensor.tolist()` devolvía `list[int]` plano → replicaba un tensor 1D inexistente → la suite aprobaba el bug (163 tests en verde con código roto).
+  4. mypy no lo detectó: `torch.Tensor` sin stubs → `.tolist()` es `Any`; flake8 no chequea tipos.
+  - Verificación ejecutada (sin tocar archivos): `/tmp/opencode/dim_bug_demo.py` con torch real replicando el código exacto del SDK — tolist 2D `[[...]]`, tensor 3D `[1,1,N]`, `logits[0,-1]` → `[N,V]` → TypeError confirmado; `len([[..]]) == 1` vs `4` tokens; `append` → `torch.tensor` TypeError.
+- **Resolución**: `input_ids = model.encode(prompt)[0].tolist()` (aplana la única fila del tensor 2D → `list[int]`) + `prompt_length = len(input_ids)` guardado ANTES del loop (elimina el re-encode del prompt al final y usa la longitud REAL de tokens).
+- **Verificación**: mock `_FakeTensor` ahora replica la forma 2D (`.tolist()` → `list[list[int]]`, `t[0].tolist()` → plano) + assert de contrato de formas dentro del `FakeModel.get_logits_from_input_ids` (si `generate()` dejara de aplanar, la suite entera tiñe de rojo) + test nuevo `test_n_token_prompt_does_not_leak_into_generated` (prompt de 3 ids inexistentes en VOCAB → si alguno llegara a generated, KeyError ruidoso). Suite: **164 tests en verde**, flake8 + mypy limpios.
+
+### Lecciones aprendidas
+
+1. **El mock debe replicar las FORMAS del contrato, no solo el comportamiento**: `_FakeTensor` devolvía lista plana porque "funcionaba" — pero el SDK es 2D. Un mock que no refleja la forma real del objeto que reemplaza puede aprobar bugs de dimensionalidad por años. Regla: testear el contrato de formas (shape/estructura), no solo valores.
+2. **Tercer caso de divergencia doc ↔ código ↔ realidad**: BUG-002 (código peor que spec), BUG-003 (código mejor que doc), BUG-005 (código Y docs compartían un supuesto falso sobre el SDK). La doc enseña el mismo error — por eso la corrección se documentó en el pseudocódigo y en la spec, no solo en el código.
+3. **`len()` sobre un `.tolist()` de tensor 2D cuenta FILAS**: `len([[a,b,c]]) == 1`. Cualquier métrica de longitud sobre tensores tiene que aplanar primero o indexar la fila.
+4. **Guardar `prompt_length` antes del loop mata dos pájaros**: elimina el re-encode del prompt (costo 1 encode extra por generación) y ancla la longitud a los tokens reales, no a un slice posterior de la lista mutada.
+5. **Torch sin stubs es un agujero de tipos para mypy**: el contrato dimensional hay que testearlo explícitamente (el assert de `isinstance(x, int)` en el fake lo hace), no confiar en el type checker.
+
+---
+
 <!-- Próximos bugs se agregan acá abajo con el mismo formato -->
