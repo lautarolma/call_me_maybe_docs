@@ -2,18 +2,17 @@
 
 > Archivo de estado DINÁMICO — importado con `@` desde `CLAUDE.md`. Se actualiza al inicio/fin de cada sesión. TODO lo que cambia entre sesiones va acá; CLAUDE.md se mantiene casi estático (prompt caching). Formato COMPACTO a propósito: detalle fino on-demand en `docs/design/`.
 
-**Última actualización**: 2026-09-24, cierre noche (commits finales + verificación 170 green / lint limpio)
+**Última actualización**: 2026-09-24, cierre noche (push a GitHub + nota de pendientes para retomar)
 
 ## HEAD · tests · working tree
 
-- **HEAD**: `794a470` fix BUG-011 → `d6592d0` Opt2+hook → `a348931` metrics → `cf1f2d8` docs → `a4b054d` pipeline. **LOCAL, ahead 6 de origin/main (SIN push)**. Submodule docs: `80bf441` (estado+contexto+anexo+plan).
+- **HEAD**: cierre 24/09 — 7 commits locales **PUSHEADOS a origin/main** (`a4b054d` → bump docs). Submodule `call_me_maybe_docs` **pusheado** (3790ef6 → nota pendientes). Working tree **LIMPIO**.
 - **Suite: 170 tests GREEN — VERIFICADO (24/09 noche)** · **flake8 0** · **mypy Success (21 archivos)** ✅.
-- **Working tree LIMPIO** (todo commiteado; quedan solo locales git-ignored: CLAUDE.md, data/output/).
-- **Opt2** (`d6592d0`): header estático inyectado con `encode()` sin forward + hook de métricas. **BUG-011** (`794a470`): fix real en `state.py._step_string` (rechaza `\` en `current_key=="name" and depth==0`); guard viejo en `schema_validator.py` REMOVIDO (quedaba muerto); tests: `test_escape_rejected_in_name_value` (reemplaza al viejo) + clase `TestFineValidationNameEscapeRejected` (+2, parcialmente redundante pero aporta cobertura de fine-validation).
-- **BUG-012** (con Opt2, en `d6592d0`): `STATIC_HEADER` debe ser byte-exacto al formato natural del modelo — incluidas las 2 newlines iniciales antes de `{` (mismo warning de la política compacta abortada `7bf38ed`, ver CONTEXTO_REFACTOR §2.2). Cortarlas rompía "Greet shrek" (tokenizaba name como "f" suelto, cero candidatos). Restauradas → ambos casos completan.
+- **Opt2** (`d6592d0`): header estático inyectado con `encode()` sin forward + hook de métricas. **BUG-011** (`794a470`): fix real en `state.py._step_string` (rechaza `\` en `current_key=="name" and depth==0`); guard viejo en `schema_validator.py` REMOVIDO (quedaba muerto).
+- **BUG-012** (con Opt2, en `d6592d0`): `STATIC_HEADER` debe ser byte-exacto al formato natural del modelo — incluidas las 2 newlines iniciales antes de `{` (ver CONTEXTO_REFACTOR §2.2). Cortarlas rompía "Greet shrek". Restauradas → completan bien.
 - **Stash**: `stash@{0}` refactor-metrics descartado · `stash@{1}` anexo-reverted. NO tocar.
 - **Scratch FUERA del repo** (correr SIEMPRE con `cwd = repo`): `~/scratch/call_me_maybe_task42/` (task43_accuracy.py, bench_p8_vs_p2.py, vocab_study.py). Backup muerto `~/scratch/PENDING_DELETE__call_me_maybe_backup_mario_validation/` (borrar cuando se descarte).
-- `data/output/` (git-ignored): `metrics_run.json` + `metrics_run.log`.
+- `data/output/` (git-ignored): `metrics_run.json` + `metrics_run.log` — destino de métricas.
 
 ## Mediciones — suite Task 4.3 (Qwen3-0.6B, threads=4, warm-up descartado) · 24/09 vs ref 23/09
 
@@ -55,13 +54,13 @@
 - **Opt2 es la palanca real para forwards NO-string** — pero byte-exacto (BUG-012); variante "optimizada" = riesgo de regresión silenciosa.
 - **Próxima idea barata**: extender Opt2 con un 2º tramo estático (entre el cierre del value de `"name"` y la apertura de `"parameters": {`) — mismo mecanismo, NO evaluado.
 
-## Pendientes (orden)
+## Pendientes — PARA RETOMAR MAÑANA (24/09 noche, orden del usuario)
 
-1. ⏳ **Decisión de estrategia con datos nuevos** + seguir buscando vías de reducir tiempos (pedido explícito del usuario): 2º tramo Opt2 (pista arriba) · hardware/modelo · aceptar KPI por prompt · re-diseñar bar M14 → requiere usuario.
-2. ⏳ **Reconciliar la suite completa con BUG-012 resuelto** (re-correr suite 11 prompts con header byte-exacto → tiempos deberían bajar más que 15.1').
-3. ⏳ Scoring M14: relajar expected (regex sin grupo / NUMBERS) vs exigir → usuario.
-4. ⏳ Tasks 5.1–5.3 + DoD5 + 6.1–6.5 (`src/validator/` no existe; pipeline NO persiste output — a4b054d solo desacopló prints).
-5. ⏳ **Push pendiente**: 6 commits locales (`a4b054d`..`794a470`) + submodule docs `80bf441`.
+1. ⏳ **Push a GitHub — EJECUTADO esta noche** (main 7 commits + submodule docs 3 commits; verificar remotos al iniciar con `git status -sb`).
+2. ⏳ **Re-correr la suite completa con BUG-012 resuelto** — reconciliar el timing real (la suite de 15.1'/908.6s corrió con el header ANTERIOR al fix BUG-012; la remedición aislada ya mostró P2 48.5s / P8 125.9s).
+3. ⏳ **2º tramo estático de Opt2** — entre el cierre del value de `"name"` y la apertura de `"parameters": {` (mismo mecanismo del header; idea barata, NO evaluada). Byte-exacto obligatorio (ver BUG-012).
+4. ⏳ **Decisiones de estrategia (requieren usuario)**: KPI <5' (hoy 3x en CPU) — aceptar por prompt / hardware-modelo / re-diseñar; bar M14 (82% vs ≥90%) — relajar expected (P9 `NUMBER`/`NUMBERS`, P10 regex con grupo) o exigir.
+5. ⏳ Tasks 5.1–5.3 + DoD5 + 6.1–6.5 (`src/validator/` no existe; pipeline NO persiste output — a4b054d solo desacopló prints).
 
 ## Protocolo de actualización
 
