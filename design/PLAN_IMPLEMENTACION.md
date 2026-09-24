@@ -540,7 +540,7 @@ Margen para 5 min (300s): 190s de overhead para I/O, validación, etc.
 - `state.update`: ~0.01ms (trivial)
 - **Total por step**: ~150-200ms
 
-#### Optimizaciones OBLIGATORIAS (Gemini refinements)
+#### Optimizaciones OBLIGATORIAS
 
 1. **Vocab pre-indexing por primer carácter**: `tokens_starting_with[char] → set[int]`
    - SIN esto: ~80-150ms/step scanneando 151K tokens en CPython
