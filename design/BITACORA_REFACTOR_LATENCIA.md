@@ -15,18 +15,19 @@
 El cuello de botella del pipeline era el **forward del modelo sin KV-cache**
 (~2.6 s en esta CPU, i7-7700HQ): cada token que el decoder deja pasar cuesta un
 forward completo, y cada forward reprocesa todo el contexto. Con ~30-40 forwards
-por prompt, la suite de 11 prompts (Task 4.3) tardaba **~24 min** originales.
+por prompt, la suite de 11 prompts (Task 4.3) tardaba **34.9 min** en la corrida original (18/09; 35.0 con carga).
 
 La estrategia fue **sacar el cómputo determinista del modelo**: todo lo que es
 predecible desde el estado (estructura JSON, keys, comas, cierres) se inyecta
 estáticamente SIN forward. Eso produjo una cascada de tres fases — pre-índice,
-header estático (Opt2) y oráculo por estado — que llevó la suite de 24 min a
-**7.6 min** (-68%) con forwards reducidos de 314 a **133** y la estructura a 0
+header estático (Opt2) y oráculo por estado — que llevó la suite de la corrida original (34.9 min) a
+**7.6 min** (-78%), con forwards reducidos de ~638/314 a **133** y la estructura a 0
 forwards.
 
 | Hito | Suite completa | P2 aislado | P8 aislado | Forwards |
 |---|---|---|---|---|
-| Original (23/09) | ~24 min | 113.2 s | 242.5 s | — |
+| Original Task 4.3 (18/09) | 34.9 min | — | — | — |
+| Ref pre-refactor (23/09) | 27.6 min | 113.2 s | 242.5 s | ~638 |
 | Opt2 header estático (24/09) | 15.1' (-45%) | 48.5 s (-57%) | 125.9 s (-48%) | 314 |
 | Oráculo Nivel 1 (25/09) | **7.6' (-50% sobre Opt2)** | **16.8 s (-85%)** | **80.4 s (-67%)** | **133** |
 
@@ -43,6 +44,20 @@ que el modelo elige — irreductibles sin semántica del contenido ni KV-cache
   cada llamada de extensión reprocesa el contexto completo desde cero.
   Medido: **2.6 s por forward** con threads=4 (óptimo: threads=6 → 28x PEOR,
   bandwidth-bound — benchmark de scaling 23/09).
+- **Precedentes medidos antes del refactor (para la serie histórica)**:
+  - 17-18/09 (Task 4.2, smoke con el modelo real): `generate()` completo
+    **~308 s para UN solo prompt** · forward real **2.842 s/step** @32 tokens
+    · proyección 11 prompts ≈ **55+ min** (incumplimiento >10x del KPI).
+  - 18/09 (Task 4.3 ORIGINAL, 6 vCPU/15Gi, threads=4): **34.9 min de
+    generación** (35.0 con carga; por prompt: 122-330 s, el más caro = regex
+    larga de substitute) · accuracy fn 11/11 (100%) · full 10/11 (91%, con
+    scoring que relajaba equivalentes funcionales) · KPI a **~7x**.
+  - 23/09 (ref pre-refactor, ya con pre-índice Opt1): **27.6 min** (1656.4 s),
+    **~638 forwards (58/p)**, KPI ~5.5x — es la corrida que sirvió de
+    baseline contra Opt2 (tabla de la sección 0).
+  - Fuentes: `docs/tracking/PROGRESS_TRACKER.md` (commits `35b359d`, `2d95ef2`)
+    y `docs/tracking/ESTADO_ACTUAL.md` (versiones 24/09, commits `80bf441`,
+    `2da476b`).
 - **Consecuencia**: el costo total ≈ forwards × 2.6 s + overhead. Reducir
   **forwards** es la única palanca real de latencia (el costo por forward es
   fijo e intocable: no se puede tocar `llm_sdk`).
@@ -256,6 +271,8 @@ tiene sentido tras B′ y según la decisión KPI (aporte marginal ~1-2%).
   `794a470`), BUG-012 (byte-exactness del header, resuelto `d6592d0`),
   BUG-013 (trigger viciado, resuelto 25/09 por oráculo).
 - `docs/tracking/ESTADO_ACTUAL.md` — estado dinámico + pendientes.
+- `docs/RESUMEN_EJECUTIVO_NEGOCIACION_PLAZOS.md` — serie histórica de métricas
+  (con fechas) + gráfica de evolución, para la negociación de extensión.
 - `data/output/metrics_run.json` + `metrics_run.log` — métricas por fase.
 - `~/scratch/call_me_maybe_task42/` — task43_accuracy.py (suite),
   bench_p8_vs_p2.py (bench aislado), vocab_study.py (estudio de tokens).
