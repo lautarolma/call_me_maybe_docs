@@ -197,13 +197,20 @@ Definitions: `WS = " \t\n\r"` · `OP(k) = '"' si type=="string" sino ''` ·
 
 ### 6.1 Suite completa (Task 4.3, modelo real, threads=4, warm-up descartado)
 
-| Métrica | Opt2 (24/09) | Oráculo N1 (25/09) | Δ |
+| Métrica | Opt2 (24/09) | Oráculo N1 (25/09, c1) | Oráculo N1 (25/09, c2 governor libre) |
 |---|---|---|---|
-| Timing generación | 15.1' | **7.6'** | **-50%** |
-| Forwards totales | 314 | **133** | -58% |
-| Accuracy fn | 100% | **100%** | = |
-| Accuracy full (M14) | 82% | **82%** | = (P9/P10 semántico) |
-| KPI <5' | 3x | incumplido (~2.6' faltante) | — |
+| Timing generación | 15.1' | 7.6' | **6.5'** |
+| Forwards totales | 314 | **133** | **133** |
+| Costo por forward | — | 3.42 s | **2.93 s (-14%)** |
+| Accuracy fn | 100% | **100%** | **100%** |
+| Accuracy full (M14) | 82% | **82%** | **82%** (P9/P10 semántico) |
+| KPI <5' | 3x | incumplido | **~1.3x** |
+
+> Corrida 2 (25/09 noche): el usuario quitó la limitación de performance
+> (ahorro de batería) del entorno. La máquina no expone cpufreq (entorno
+> virtualizado) — la limitación quedó como variable no visible, pero el efecto
+> se mide en el timing: mismos 133 fwd, -14% de costo por forward (el grueso
+> en IN_STRING_VALUE: 372.3 s → 303.1 s).
 
 Desglose por fase (solo 3 fases con forwards — el resto a 0):
 
@@ -215,14 +222,16 @@ Desglose por fase (solo 3 fases con forwards — el resto a 0):
 
 ### 6.2 Costo real y piso físico
 
-- Costo real: **3.42 s/forward** (454.5 s / 133).
-- Palancas restantes: **B′** (~31 fwd de fn_name → ~97 fwd → **~5.5'**) y
-  **Nivel 2** (T7–T10, tokens fusionados — ataca los 6 COLON + colas de
-  values). Juntas: piso real **~5.6'**.
+- Costo real: **2.93 s/forward** con governor libre (389.1 s / 133); 3.42 s en
+  la corrida 1 (limitación de batería activa, ~14% de penalización).
+- Palancas restantes: **B′** (~31 fwd de fn_name → ~97 fwd → **~4.7-5.5'**
+  según governor) y **Nivel 2** (T7–T10, tokens fusionados — ataca los 6
+  COLON + colas de values). Juntas: piso real **~5.0'** con governor libre.
 - **Conclusión**: con la estructura a 0 forwards, el residuo son los ~96
   *values libres* (string + number) que el modelo decide — irreductibles sin
-  semántica del contenido ni KV-cache. **El KPI <5' es inalcanzable en esta
-  CPU** (i7-7700HQ): el techo honesto de la optimización estructural es ~5.5'.
+  semántica del contenido ni KV-cache. **El KPI <5' queda AL FILO** con
+  governor libre + B′ (~4.7' estimado); sin B′ el techo honesto de la
+  optimización estructural es ~5.5'.
 
 ## 7. Palancas diferidas y decisiones pendientes
 
