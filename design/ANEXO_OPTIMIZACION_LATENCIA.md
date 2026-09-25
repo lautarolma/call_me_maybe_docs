@@ -1069,3 +1069,106 @@ El flujo fue transformado de **10s/step** a **<0.1ms/step** en la mayoría de ca
 El resultado: **Accuracy 100%** + **Tiempo total 11 prompts: ~151s** (2.5 min), cumpliendo y superando el espíritu del KPI original ≤5 min.
 
 ---
+
+## Registro de decisiones — FASE ORÁCULO (25/09): 2º tramo → oráculo por estado
+
+> Bitácora de decisiones de arquitectura de la fase en curso (2º tramo estático de Opt2).
+> Registro cronológico: qué se abordó, qué se descartó, y qué conclusiones llevaron al
+> diseño vigente (Modelo A). Bugs derivados: ver `docs/tracking/BITACORA_BUGS.md` (BUG-013).
+
+### Contexto
+
+Opt2 (`d6592d0`) dejó un 2º tramo natural: entre el cierre del value de `"name"` y la
+apertura de `"parameters": {`. Sesión 25/09: se implementó lineal en el working tree
+(2º tramo, +95 en `constrained_generator.py`, +150 tests) y se midió aislado; la
+revisión externa (modelo consultado) lo generalizó a **oráculo por estado completo**.
+
+### D1 — 2º tramo lineal → oráculo por estado completo
+
+- **Abordado**: tramo fijo `,\n  "parameters": {` disparado tras el cierre del value de `name`.
+- **Hallazgo** (benchmark aislado P2/P8): P8 56→49 forwards (−7 exacto) ✅; P2 CORRUPTO → **BUG-013** (trigger matcheaba el param interno `"name"` de `fn_greet` tras cerrar `parameters`).
+- **Descartado**: trigger lineal por `current_key=="name"` — no es derivable: el caso `"parameters": {}` (fn sin params) deja `current_key=="parameters"`; y el param interno `name` lo vuelve ambivalente.
+- **Adoptado**: oráculo por estado — tabla de tramos keyed por estado completo, con **E** (whitespace ya emitido) y **K** (próxima key canónica pendiente). Tramos con dominios disjuntos por construcción (unicidad) + `emitted+inyectado = prefijo del canónico` (minimalidad).
+- **Conclusión**: el trigger por estado completo elimina de raíz la clase de bug BUG-013 (estados residuales con `current_key` sin resetear al bajar de depth).
+
+### D2 — Gate robusto: `has_seen_params_object()`
+
+- El modelo consultado señaló que `current_key=="name"` es insuficiente; verificación confirmó que `has_seen_params_object()` existe (`schema_validator.py` L197-206, flag sticky `_params_object_seen` L146).
+- **Adoptado**: los tramos de apertura de `parameters` exigen `¬has_seen_params_object()` (params-object aún no visto).
+
+### D3 — E y K (anti-duplicación, herederos de BUG-012)
+
+- BUG-012 enseñó byte-exactness obligatoria (las 2 newlines del header). El oráculo formaliza con **E** (ya emitido) y **K** (próximo key canónico): `canonical.removeprefix(E)` — elimina el riesgo de duplicar whitespace o keys que un trigger lineal cargaba por diseño.
+
+### D4 — B′ (autocompletar fn_name por unicidad del trie) — VALIDADO y DIFERIDO
+
+- **Propuesto**: cuando el prefijo emitido del fn_name es unívoco en el trie, inyectar el resto + comilla sin forward (el modelo ya "eligió" la función; el resto es determinista).
+- **Probe de unicidad** (trie real, 25/09) — umbrales exactos:
+
+| Función | Único desde | Resto a inyectar |
+|---|---|---|
+| `fn_add_numbers` | `fn_a` | `dd_numbers"` |
+| `fn_greet` | `fn_gr` | `eet"` |
+| `fn_reverse_string` | `fn_r` | `everse_string"` |
+| `fn_get_square_root` | `fn_ge` | `t_square_root"` |
+| `fn_substitute_string_with_regex` | `fn_s` | `ubstitute_string_with_regex"` |
+
+  **Ojo**: `fn_g` NO es unívoco (compartido entre `fn_greet` y `fn_get_square_root`) — la unicidad la decide el trie con el prefijo emitido, no una posición fija del nombre.
+- **Decisión del usuario (25/09)**: **diferido hasta medir el Modelo A**. Medido el Modelo A (suite completa 133 fwd / 7.6', D9): B′ es la siguiente palanca (~31 fwd → ~97 fwd totales / ~5.5' con el costo real por forward).
+
+### D5 — Función sin parámetros (fn_empty) — probe paso 0 APROBADO
+
+- Decisión del usuario (25/09): probe de formato byte-exacto como **paso 0** (antes de implementar).
+- **Resultado del probe** (modelo real, Qwen3-0.6B, threads=4, 25/09): `"parameters": {}` — cierre **INLINE** (`}` directo, sin newline ni indent). El tramo óptimo de cierre para el caso vacío es el `}` inmediato.
+- **Observación pendiente**: el probe completó con `SUCCESS=False` (faltó el `}` final del ROOT en el estado residual post-cierre de objeto vacío). Diagnóstico diferido a la implementación del oráculo — conectado a la causa raíz de BUG-013 (`current_key` residual al bajar de depth). La suite de tests verifica el caso con mocks; el modelo real es quien deja el estado residual.
+
+### D6 — Refutación de la métrica "40% titubeo" en IN_STRING_VALUE
+
+- `ESTADO_ACTUAL.md` (L43) afirmaba ~40% de forwards "titubeando" en strings libres. Probe de segmentación BPE (modelo real, 25/09): los forwards de un string = **tokens BPE + la comilla de cierre, EXACTO** (P8: 7+13+3+2 = 25 == 25 medidos en benchmark).
+- **Conclusión**: no hay titubeo — los forwards de strings libres son estructurales (los impone el BPE del modelo). Nota de ESTADO_ACTUAL incorrecta → corregida.
+- **Implicancia**: el margen de optimización está en la ESTRUCTURA (tramos del oráculo + B′), no en los valores de strings libres.
+
+### D7 — Contrato de interfaces pendiente (último bloqueo)
+
+- La implementación del Modelo A espera del diseño consultado: firma exacta de `_next_static_text(state, schema, emitted)`, ubicación de `emitted` (acumulado en `generate()`, sin tocar `state.py` ni `schema_validator.py`) y la spec formal de la tabla de tramos (dominios disjuntos). Nada más bloquea el arranque de la implementación.
+
+### D8 — Oráculo Nivel 1 IMPLEMENTADO (25/09 noche): mediciones + correcciones al contrato
+
+Contrato recibido del diseño consultado, implementado y medido. Dos correcciones sobre la marcha:
+
+1. **Gate N reemplaza a `¬has_seen_params_object` en T1/T2** (verificación al implementar, contra `state.py`): el flag P es sticky y SOLO se enciende si el token termina en `PARAMS_OBJECT` (`schema.update()` corre con el estado POST-token) → un token BPE que cruza el `{` (ej. `'{"'`) lo deja apagado con parameters ya abierto: falso negativo EN LA DIRECCIÓN INSEGURA (duplicaría el tramo). N, en cambio, se deriva por casos:
+   - BUG-013 (param interno `name` de fn_greet): al cerrarlo deja `keys_enclosed={'name'}` → N=0.
+   - `fn_empty`: `current_key=="parameters"` (o `{}` fusionado) → N=0.
+   - N=1 ⟺ entre el value de `"name"` y la key siguiente.
+   P queda SOLO en su dirección segura (T6 "inyectar solo si ya se abrió" — falso negativo cae al forward).
+
+2. **P NO puede gatear T6 (hallazgo del probe real fn_empty)**: el token fusionado `"parameters": {}` trae `{` y `}` en UN tocho → `has_seen_params_object()` queda **False** en el caso real (el flag nunca ve el PARAMS_OBJECT intermedio) → T6 exigiéndolo nunca respondía → `SUCCESS=False` (faltaba el `}` del ROOT). Solución: con **N=0 ∧ ρ=0** el ROOT solo puede cerrarse (el único VALUE_END d0 sin parameters es el post-name, N=1 — bloqueado por el propio gate N) → T6 prescinde de P. El flanco del `}` prematuro lo cubre el pase fino del camino normal (M5), no el oráculo.
+
+3. **Reparto T3/T4 verificado contra la state machine**: en este decoder `VALUE_END + ',' → PARAMS_OBJECT` (NO `IN_OBJECT`) → T3 (PARAMS_OBJECT d1) cubre el post-coma de los values NUMBER (`2.0` deja IN_NUMBER_VALUE abierto; la coma del modelo cierra el número y cae a PARAMS_OBJECT); T4 (VALUE_END d1) cubre solo values que cierran en su token (strings).
+
+**Mediciones** (modelo real, threads=4, warm-up descartado, 25/09 noche):
+
+| Caso | Ref 23/09 | Opt2 | **Oráculo N1** | Δ vs ref | forwards |
+|---|---|---|---|---|---|
+| P2 fn_greet | 113.2 s | 48.5 s | **16.8 s** | **-85%** | **7 (piso teórico)** |
+| P8 regex | 242.5 s | 125.9 s | **80.4 s** | **-67%** | 29 (solo values string) |
+
+- Fases estructurales (IN_OBJECT/PARAMS_OBJECT/VALUE_END/COLON/KEY_*) a **0 forwards** — toda la sintaxis sale por el oráculo.
+- **fn_empty real: SUCCESS=True** (25.1 s) — el `}` del ROOT que faltaba lo inyecta T6; output byte-exacto `'\n\n{\n  "name": "fn_empty",\n  "parameters": {}\n'`.
+- Suite completa con oráculo: pendiente (estimar vs KPI <5').
+- **Nivel 2 (T7–T10, tokens fusionados) y B′**: DIFERIDOS hasta medir el residuo del Nivel 1 en la suite completa.
+
+### D9 — Suite completa con oráculo: 7.6' (-50%), piso físico del KPI
+
+- **Medición** (25/09 noche, modelo real, threads=4, warm-up descartado): **133 forwards / 454.5s (7.6 min)** vs 908.6s (15.1') con Opt2 → **-50%**. Accuracy fn 11/11 (100%), full 9/11 (82% — los mismos P9/P10 de scoring semántico M14, no del decoder).
+- **Desglose por fase** (ver `data/output/metrics_run.json` → phases):
+
+| Fase | Forwards | Tiempo | Observación |
+|---|---|---|---|
+| IN_STRING_VALUE | 114 | 372.3s (82%) | values libres + fn_names |
+| IN_NUMBER_VALUE | 13 | 58.3s | numbers del modelo |
+| COLON | 6 | 23.9s | tokens fusionados (residuo — objetivo de Nivel 2) |
+| IN_OBJECT / PARAMS_OBJECT / VALUE_END | **0** | ~17s | estructura 100% oráculo ✅ |
+
+- **Costo real por forward: ~3.42 s**. Con B′ (~31 fwd): ~97 fwd → **~5.5'** (CORREGIDO respecto a la estimación preliminar D4 de ~4.7', que asumía costo/fwd menor). B′ + Nivel 2 → piso real ~5.6'.
+- **Conclusión**: el piso físico son los ~96 values libres (string + number) que el modelo decide — irreductibles sin semántica del contenido ni KV-cache (ambos fuera del subject). **El KPI <5' es inalcanzable en esta CPU (i7-7700HQ)** con la suite de 11 prompts; el techo honesto de la optimización de estructura está en **~5.5'**. La decisión KPI (hardware / aceptar por prompt / redefinir) queda informada con datos duros.

@@ -2,14 +2,18 @@
 
 > Archivo de estado DINÁMICO — importado con `@` desde `CLAUDE.md`. Se actualiza al inicio/fin de cada sesión. TODO lo que cambia entre sesiones va acá; CLAUDE.md se mantiene casi estático (prompt caching). Formato COMPACTO a propósito: detalle fino on-demand en `docs/design/`.
 
-**Última actualización**: 2026-09-24, cierre noche (push a GitHub + nota de pendientes para retomar)
+**Última actualización**: 2026-09-25 noche (oráculo Nivel 1 implementado — BUG-013 resuelto, suite completa 7.6' / 133 fwd)
 
 ## HEAD · tests · working tree
 
-- **HEAD**: cierre 24/09 — 7 commits locales **PUSHEADOS a origin/main** (`a4b054d` → bump docs). Submodule `call_me_maybe_docs` **pusheado** (3790ef6 → nota pendientes). Working tree **LIMPIO**.
-- **Suite: 170 tests GREEN — VERIFICADO (24/09 noche)** · **flake8 0** · **mypy Success (21 archivos)** ✅.
+- **HEAD**: cierre 24/09 — 7 commits locales **PUSHEADOS a origin/main** (`a4b054d` → bump docs). Submodule `call_me_maybe_docs` **pusheado** (3790ef6 → nota pendientes). Remotos VERIFICADOS 25/09: origin/main == local == `f876719`.
+- **Working tree (25/09 noche) — SIN commitear, listo para commit con OK**:
+  - `src/decoder/constrained_generator.py`: 2º tramo lineal (BUG-013) reemplazado por **oráculo por estado Nivel 1** (`_next_static_text` + `_TRAMPS` T1–T6, funciones puras, `emitted` por iteración, `_inject_static_header` con acumulador opcional).
+  - `tests/test_constrained_generator.py`: clase `TestLevel1Oracle` (canónicos por tramo, dominios disjuntos, BUG-013, insertion order, align E) + `TestInjectOracleText` (simulate() como fuente de verdad) + `TestOracleEndToEnd` (P2-style 9 fwd, fn_empty con T6).
+- **Suite: 195 tests GREEN — VERIFICADO (25/09 noche)** · **flake8 0** · **mypy Success** ✅.
 - **Opt2** (`d6592d0`): header estático inyectado con `encode()` sin forward + hook de métricas. **BUG-011** (`794a470`): fix real en `state.py._step_string` (rechaza `\` en `current_key=="name" and depth==0`); guard viejo en `schema_validator.py` REMOVIDO (quedaba muerto).
 - **BUG-012** (con Opt2, en `d6592d0`): `STATIC_HEADER` debe ser byte-exacto al formato natural del modelo — incluidas las 2 newlines iniciales antes de `{` (ver CONTEXTO_REFACTOR §2.2). Cortarlas rompía "Greet shrek". Restauradas → completan bien.
+- **BUG-013 — ✅ RESUELTO (25/09 noche)**: oráculo por estado con gate **N** (`depth==0 ∧ current_key=="name" ∧ keys_enclosed==∅`) — ver BITACORA + ANEXO D8 (hallazgo: el flag `has_seen_params_object` es sticky y NO puede gatear T6 con tokens fusionados).
 - **Stash**: `stash@{0}` refactor-metrics descartado · `stash@{1}` anexo-reverted. NO tocar.
 - **Scratch FUERA del repo** (correr SIEMPRE con `cwd = repo`): `~/scratch/call_me_maybe_task42/` (task43_accuracy.py, bench_p8_vs_p2.py, vocab_study.py). Backup muerto `~/scratch/PENDING_DELETE__call_me_maybe_backup_mario_validation/` (borrar cuando se descarte).
 - `data/output/` (git-ignored): `metrics_run.json` + `metrics_run.log` — destino de métricas.
@@ -35,12 +39,29 @@
 - **P2** (Greet shrek): 113.2s → **48.5s (-57%)** · **P8** (regex, peor caso): 242.5s → **125.9s (-48%)**. Aislado (2/11 prompts) — NO reconciliado todavía con el run completo de la suite.
 - `skips_if_single = 0` en TODAS las fases, 3ra medición → **M5 (skip-if-single) = código muerto confirmado**.
 
+## Benchmark 2º tramo + probe fn_empty (madrugada 25/09, working tree sucio BUG-013)
+
+- **P8 con 2º tramo activo**: 56→49 forwards (−7 exactos), output válido ✅. **P2 CORRUPTO** → **BUG-013** (detalle en BITACORA): con el trigger viciado, el timing de esa corrida NO es limpio (forwards extra por output degenerado).
+- **Probe paso 0 fn_empty (modelo real, Qwen3-0.6B, threads=4)**: función sin parámetros → **`"parameters": {}` — cierre INLINE** (sin newline ni indent). **Observación**: el probe terminó `SUCCESS=False` (faltó el `}` final del ROOT) — conectado a la causa raíz de BUG-013 (estado residual `current_key` al bajar de depth); diagnóstico en la implementación del oráculo.
+
+## Benchmark oráculo Nivel 1 (noche 25/09, modelo real, threads=4, warm-up descartado)
+
+| Caso | Ref 23/09 | Opt2 (d6592d0) | **Oráculo N1** | Δ vs ref |
+|---|---|---|---|---|
+| P2 fn_greet | 113.2 s | 48.5 s (-57%) | **16.8 s** | **-85%** |
+| P8 regex | 242.5 s | 125.9 s (-48%) | **80.4 s** | **-67%** |
+
+- **Forwards**: P2 = **7** (piso teórico: solo los chars del value `"shrek"`); P8 = 29 (los 3 values strings). Las fases de estructura (IN_OBJECT/PARAMS_OBJECT/VALUE_END) quedaron en **0 forwards** — toda la sintaxis sale por el oráculo.
+- **Probe fn_empty post-fix**: **SUCCESS=True** (25.1 s) — el `}` final del ROOT lo inyecta T6; output byte-exacto `'\n\n{\n  "name": "fn_empty",\n  "parameters": {}\n'`.
+- **Suite completa con oráculo (25/09 noche)**: **7.6 min de generación** (15.1' con Opt2 → **-50%**) · accuracy fn 11/11 (100%) · full 9/11 (82%, misma bar M14 — P9/P10 regex semántico) · **133 forwards** totales. Fases: IN_STRING_VALUE 114 fwd (372.3s — 82% del tiempo), IN_NUMBER_VALUE 13 (58.3s), COLON 6 (23.9s — tokens fusionados), IN_OBJECT/PARAMS_OBJECT/VALUE_END = **0 fwd** (estructura 100% oráculo). **KPI <5' INCUMPLIDO**.
+- **Conclusión KPI (25/09 noche)**: con 3.42 s/fwd reales, B′ (~31 fwd) deja ~97 fwd → ~5.5'; B′+Nivel 2 → piso real **~5.6'**. El piso físico son los ~96 values libres del modelo (string+number) — irreductibles sin semántica/KV-cache (prohibidos). **KPI <5' inalcanzable en esta CPU** → decisión estratégica pendiente de usuario (hardware / aceptar KPI por prompt / redefinir).
+
 ## Estudio del vocabulario (24/09) — `~/scratch/call_me_maybe_task42/vocab_study.{py,_results.json}`
 
 - `string_safe` = 96.87% de 151,643 → bucketizar IN_STRING_VALUE NO sirve (wildcard ≈ gratis).
 - BPE fragmenta dígitos/puntuación: peor 2.17 chars/token ("Hello 34 I'm 233 years old" = 12 tokens); global 3.33; palabras 5–6.
 - 395 tokens con backslash (incl. `\n` tid 1699, `\t`, `\\`, `\"`) · 1,344 con comilla (0.9%) · bucket " " = 53k (35%).
-- Forwards de strings ≈ tokens BPE + ~40% titubeo → irreductible con SDK actual (roll K=4 inviable sin logits multi-step).
+- Forwards de strings ≈ tokens BPE + comilla final, **EXACTO** (probe de segmentación 25/09: P8 7+13+3+2 = 25 == 25 medidos) → **NO hay ~40% titubeo (nota vieja REFUTADA)**. El margen está en la estructura (oráculo + B′), no en valores de strings libres.
 
 ## ⚠ Pendientes de la cancha (24/09)
 
@@ -50,17 +71,19 @@
 ## Pistas verificadas para seguir optimizando (contexto próxima sesión)
 
 - **El forward es compute-bound, no filter-bound**: costo casi uniforme (~4.4–5.9s) sin importar el candidate set (ROOT chico ≈ IN_STRING_VALUE con casi todo el vocab) — confirmado por profiling por fase + estudio de vocabulario. Acotar candidatos (trie/Opt1 en `IN_KEY`) NO abarata cada forward; solo evita forwards SI logra singleton (no evaluado a nivel token BPE).
-- **Forwards de `IN_STRING_VALUE` ≈ tokens BPE + titubeo** — prompts con dígitos/puntuación (P8) fragmentan peor. Irreductible sin SDK (sin batch/KV-cache/speculative).
+- **Forwards de `IN_STRING_VALUE` = tokens BPE + comilla final, EXACTO** (probe 25/09) — NO hay margen en strings libres; prompts con dígitos/puntuación (P8) fragmentan peor. Irreductible sin SDK.
 - **Opt2 es la palanca real para forwards NO-string** — pero byte-exacto (BUG-012); variante "optimizada" = riesgo de regresión silenciosa.
-- **Próxima idea barata**: extender Opt2 con un 2º tramo estático (entre el cierre del value de `"name"` y la apertura de `"parameters": {`) — mismo mecanismo, NO evaluado.
+- **Fase 2 (oráculo por estado) es la palanca VIGENTE**: generaliza el 2º tramo a tabla de tramos por estado (E/K), fix BUG-013 de raíz. Espera contrato de interfaces del diseño consultado (`_next_static_text`, `emitted`, spec de tramos). Registro completo en ANEXO (25/09).
 
-## Pendientes — PARA RETOMAR MAÑANA (24/09 noche, orden del usuario)
+## Pendientes — PARA RETOMAR (orden del usuario, 24/09 noche + 25/09)
 
-1. ⏳ **Push a GitHub — EJECUTADO esta noche** (main 7 commits + submodule docs 3 commits; verificar remotos al iniciar con `git status -sb`).
-2. ⏳ **Re-correr la suite completa con BUG-012 resuelto** — reconciliar el timing real (la suite de 15.1'/908.6s corrió con el header ANTERIOR al fix BUG-012; la remedición aislada ya mostró P2 48.5s / P8 125.9s).
-3. ⏳ **2º tramo estático de Opt2** — entre el cierre del value de `"name"` y la apertura de `"parameters": {` (mismo mecanismo del header; idea barata, NO evaluada). Byte-exacto obligatorio (ver BUG-012).
-4. ⏳ **Decisiones de estrategia (requieren usuario)**: KPI <5' (hoy 3x en CPU) — aceptar por prompt / hardware-modelo / re-diseñar; bar M14 (82% vs ≥90%) — relajar expected (P9 `NUMBER`/`NUMBERS`, P10 regex con grupo) o exigir.
-5. ⏳ Tasks 5.1–5.3 + DoD5 + 6.1–6.5 (`src/validator/` no existe; pipeline NO persiste output — a4b054d solo desacopló prints).
+1. ✅ **Suite completa con oráculo Nivel 1 — CORRIDA (25/09 noche)**: 7.6' (vs 15.1' Opt2, -50%), 133 fwd, fn 100% / full 82%, KPI <5' incumplido (piso físico ~5.6' — ver sección benchmark).
+2. ✅ **BUG-013 — RESUELTO (25/09 noche)**: oráculo por estado con gate N; hallazgo P-sticky (tokens fusionados) documentado en BITACORA + ANEXO D8.
+3. ✅ **Oráculo por estado (Modelo A) — IMPLEMENTADO** (T1–T6, Nivel 1; Nivel 2 / tokens fusionados DIFERIDO hasta medir el residuo).
+4. ✅ **Probe fn_empty — SUCCESS=True** (25.1s): el `}` del ROOT que faltaba lo inyecta T6.
+5. ⏳ **B′ (autocompletar fn_name por trie)** — DIFERIDO (decisión usuario): recién después de medir el Modelo A completo.
+6. ⏳ **Decisiones de estrategia (requieren usuario)**: KPI <5' (con oráculo se acerca) — aceptar por prompt / hardware-modelo / re-diseñar; bar M14 (82% vs ≥90%) — relajar expected (P9 `NUMBER`/`NUMBERS`, P10 regex con grupo) o exigir.
+7. ⏳ Tasks 5.1–5.3 + DoD5 + 6.1–6.5 (`src/validator/` no existe; pipeline NO persiste output — a4b054d solo desacopló prints).
 
 ## Protocolo de actualización
 

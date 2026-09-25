@@ -372,4 +372,126 @@ Cambios concretos:
 
 ---
 
+## BUG-011: loop de escapes en el value de `"name"` — el guard vivía donde el estado NUNCA llegaba
+
+- **Fecha de detección**: 2026-09-24 (repro real "Greet shrek", suite Task 4.3)
+- **Severidad**: ALTA (loop + 200 forwards agotados → success=False; bloqueaba prompts individuales)
+- **Estado**: ✅ RESUELTO (`794a470`)
+- **Archivos afectados**:
+  - `src/decoder/state.py` (fix real: `_step_string` rechaza `\` AL LEERLO si `current_key=="name" and depth==0`)
+  - `src/decoder/schema_validator.py` (guard viejo REMOVIDO — quedaba muerto)
+  - `tests/` (verificación: 170 green)
+
+### Síntoma
+
+Repro "Greet shrek" (P2): el output se truncaba en `'{\n  "name": "f'` y la generación
+moría con success=False tras agotar los forwards (200). En el medio, loop de escapes.
+
+### Análisis de causa raíz
+
+1. Un token BPE que ES el escape completo (ej. `\n` fusionado, tid 1699) resuelve
+   ESCAPE_IN_STRING→IN_STRING_VALUE dentro de `simulate()` → el `new_state` que ve
+   el schema **nunca queda en ESCAPE_IN_STRING** → cualquier guard colocado ahí es
+   código muerto por construcción.
+2. El fix real va en el origen: el estado aceptaba `\` como carácter normal al LEERLO
+   (siendo que en `"name"` la comilla cierra el string, no hay escapes legales).
+3. Lección: guard en el estado REACHABLE (`_step_string` al leer el char), no en el
+   estado que el flujo de simulación nunca expone.
+
+### Resolución
+
+`state.py._step_string`: si el char es `\` y `current_key=="name" and depth==0` → paso
+inválido (no se consume, no avanza). Commit `794a470`. Verificado 170 green.
+
+---
+
+## BUG-012: `STATIC_HEADER` rompía sin las 2 newlines iniciales — byte-exactness NO negociable
+
+- **Fecha de detección**: 2026-09-24 (tests E2E con Opt2, dentro de `d6592d0`)
+- **Severidad**: ALTA (regresión silenciosa: prompts individuales fallaban con output inválido)
+- **Estado**: ✅ RESUELTO (incluido en `d6592d0`)
+- **Archivos afectados**:
+  - `src/decoder/constrained_generator.py` (`STATIC_HEADER`)
+  - `tests/test_constrained_generator.py`
+
+### Síntoma
+
+La variante "optimizada" del header (sin las 2 newlines iniciales previas a `{`)
+hacía fallar el repro "Greet shrek": el modelo retomaba con formato propio y el
+output quedaba inconsistente con la estructura inyectada.
+
+### Análisis de causa raíz
+
+El header debe ser **byte-exacto al formato natural del modelo** (`\n\n{\n  "name": "`),
+no un JSON minificado. La política compacta YA había fallado antes (registro en
+ANEXO: commit abortado `7bf38ed`). Los tokens inyectados por `encode()` definen el
+estado inicial del json en construcción: cualquier desvío del formato natural se
+arrastra al resto de la generación.
+
+### Resolución
+
+Restaurar las 2 newlines iniciales en `STATIC_HEADER`. Lección: toda inyección
+estática se valida contra el formato byte-exacto del modelo, nunca contra un formato
+"lógico". Esto anticipa la variable `E` (whitespace ya emitido) del oráculo por estado.
+
+---
+
+## BUG-013: trigger del 2º tramo Opt2 matchea el param interno `"name"` tras cerrar `parameters` — output corrupto con success=true
+
+- **Estado**: ✅ RESUELTO (25/09) — oráculo por estado con gate N (ver Resolución)
+
+- **Fecha de detección**: 2026-09-25 (benchmark aislado P2/P8 con el 2º tramo del working tree)
+- **Fecha de resolución**: 2026-09-25 (implementación del oráculo Nivel 1, working tree — sin commitear)
+- **Severidad**: ALTA (contaminación SILENCIOSA: output JSON válido pero semánticamente corrupto — el peor tipo)
+- **Archivos afectados**:
+  - `src/decoder/constrained_generator.py` (trigger del 2º tramo, working tree — NO commiteado)
+  - `src/decoder/state.py` (causa raíz: `_step_value_end` no resetea `current_key` al bajar depth 1→0)
+
+### Síntoma
+
+Benchmark aislado con el 2º tramo activo (working tree):
+- **P8** (`fn_add_numbers`): ✅ correcto, **56→49 forwards** (−7 exactos)
+- **P2** (`fn_greet`): ❌ output corrupto — JSON con `"parameters"` duplicado y el
+  param `"shrek"` PERDIDO. El parser de JSON con keys duplicadas tomaba el último →
+  `success=true` → métricas de accuracy contaminadas sin crash.
+
+### Análisis de causa raíz
+
+1. El trigger del 2º tramo es `VALUE_END ∧ depth==0 ∧ current_key=="name"`.
+2. `fn_greet` tiene un parámetro interno llamado **`name`** → al escribir
+   `"name": ...` dentro de `parameters` y cerrar el objeto con `}`:
+   `_step_value_end` baja depth 1→0 **sin resetear `current_key`** → el estado queda
+   `VALUE_END ∧ depth==0 ∧ current_key=="name"` → el trigger matchea ILEGÍTIMAMENTE
+   y re-inyecta `,\n  "parameters": {` en mitad del output.
+3. El timing del benchmark quedó inflado (el output corrupto generó más forwards)
+   → el dato de timing de esa corrida NO es limpio.
+4. **Dato en contra de la hipótesis "current_key==name es derivable"**: el caso
+   `"parameters": {}` (función sin params, fixture `fn_empty` de los tests) deja
+   `current_key=="parameters"` → el trigger NO debería depender de `current_key`.
+   El gate robusto es **`not schema.has_seen_params_object()`** (flag sticky
+   `_params_object_seen`, `schema_validator.py` L146/L197-206).
+
+### Resolución (implementada 25/09 — oráculo por estado, Nivel 1)
+
+- **Gate N** (reemplaza a `¬has_seen_params_object`): `N = depth==0 ∧ current_key=="name" ∧ keys_enclosed==∅`. El flag P es **sticky y solo se enciende si el token termina en PARAMS_OBJECT** (`schema.update()` corre con el estado POST-token) → un token BPE que cruza el `{` (ej. `'{"'`) lo deja apagado con parameters ya abiertos: falso negativo EN LA DIRECCIÓN INSEGURA. N, en cambio, se deriva por casos (verificado contra state.py):
+  - Param interno `name` (BUG-013): al cerrarlo, `keys_enclosed={'name'}` → N=0 ✓
+  - `fn_empty` con `{}` fusionado: `current_key=="parameters"` → N=0 ✓
+  - N=1 ⟺ entre el value de `"name"` del output y la key siguiente.
+- Hallazgo de implementación (probe real fn_empty): **P NO puede gatear T6** — el token fusionado `"parameters": {}` trae `{` y `}` en UN tocho y el flag sticky del schema nunca ve el PARAMS_OBJECT intermedio → con `N=0 ∧ ρ=0` el ROOT solo puede cerrarse (el flanco del `}` prematuro lo cubre el pase fino del camino normal, no el oráculo). Ver ANEXO D8.
+- La tabla de tramos por estado del oráculo reemplaza el trigger lineal → los
+  disparadores quedan disjuntos por construcción (unicidad de dominios).
+- Mediciones post-fix (benchmark aislado, modelo real): P2 16.8s (−85% vs ref), P8 80.4s (−67% vs ref) · probe fn_empty: **SUCCESS=True** (25.1s) — el `}` final del ROOT que faltaba ahora lo inyecta T6.
+
+### Lecciones aprendidas
+
+1. Un trigger por `current_key` con estados residuales (no reseteados al bajar de
+   depth) es una mina: el estado post-`}` de un objeto anidado conserva la última
+   key del objeto hijo.
+2. `success=true` NO es sinónimo de output válido con JSON de keys duplicadas —
+   los parsers JSON toleran duplicados; la accuracy semántica hay que mirarla aparte.
+3. El timing de una corrida donde el output se corrompe es basura: forwards extra
+   por output degenerado inflan el dato.
+
+---
+
 <!-- Próximos bugs se agregan acá abajo con el mismo formato -->

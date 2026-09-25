@@ -65,6 +65,17 @@
 - **Sin complejidad ajena**: si la solución requiere una herramienta/estructura que no existe en `src/`, es señal de MAL diseño — parar y proponer alternativa con tradeoffs.
 - **Criterio de éxito medible**: re-correr Task 4.3 (`.scratch_task42/task43_accuracy.py`, `HF_HUB_OFFLINE=1`, `torch.set_num_threads(4)`) → timing < 5 min manteniendo accuracy ≥ 90% y JSON 100% válido.
 
+### 2.5 FASE 2 (25/09): oráculo por estado — IMPLEMENTADO (Nivel 1)
+
+- **Qué**: generalizar el 2º tramo de Opt2 (entre el cierre de `name` y `"parameters": {`) a un oráculo por estado completo: tabla de tramos keyed por estado (VALUE_END/IN_OBJECT/PARAMS_OBJECT × depth × gates), con **E** (whitespace ya emitido) y **K** (próxima key canónica pendiente). `_next_static_text(state, schema, emitted)` reemplaza al trigger lineal.
+- **Estado (25/09 noche)**: ✅ implementado en el working tree (`constrained_generator.py` + tests, SIN commitear). T1–T6 del Nivel 1 como funciones puras en `_TRAMPS`; `emitted` acumulado por iteración en `generate()`; `_inject_static_header` extendido con acumulador opcional. Suite 195 green + flake8 + mypy.
+- **Por qué**: el trigger lineal `current_key=="name"` rompió (BUG-013 — matchea el param interno `"name"` tras cerrar `parameters`); el gate robusto es **N** (`depth==0 ∧ current_key=="name" ∧ keys_enclosed==∅`) — reemplaza a `¬has_seen_params_object()` que es sticky y no cubre tokens fusionados (D8, ANEXO).
+- **Gates**: T1/T2 (apertura de `parameters`) exigen N=1; T3/T4 keys dentro de parameters exigen función resuelta y key pendiente (`required_keys_remaining()`); T5/T6 cierre exigen keys completas (N=0 ∧ ρ=0 en T6 — sin P, ver D8).
+- **No tocar**: `state.py` ni `schema_validator.py` (el oráculo vive en `generate()`/`constrained_generator.py`; `emitted` se acumula en el loop, no en el estado). ✅ respetado.
+- **fn_empty (0 params)**: probe real confirmó cierre INLINE (`"parameters": {}`) **y** `SUCCESS=True` post-fix (25.1s) — el `}` del ROOT lo inyecta T6; el caso entra por N=0 (tramo gratis ord=∅ → el modelo emite el `{}` fusionado).
+- **B′ (autocompletar fn_name por trie)**: validado con probe de unicidad, DIFERIDO hasta métricas del Modelo A (suite completa).
+- Registro completo de decisiones (lo abordado/descartado y las refutaciones): `docs/design/ANEXO_OPTIMIZACION_LATENCIA.md` → "Registro de decisiones — FASE ORÁCULO (25/09)" (D1–D8).
+
 ---
 
 ## 3. ARQUITECTURA ACTUAL (mapa rápido — orientación sin leer todo)
