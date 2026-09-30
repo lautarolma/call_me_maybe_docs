@@ -492,6 +492,87 @@ Benchmark aislado con el 2º tramo activo (working tree):
 3. El timing de una corrida donde el output se corrompe es basura: forwards extra
    por output degenerado inflan el dato.
 
+## BUG-014: el filtro devolvía un singleton y convertía el pase fino en un veto absoluto
+
+- **Estado**: ✅ RESUELTO (30/09) — pero **inactivo en la workload medida** (ver Medicación)
+- **Fecha de detección**: 2026-09-30 (revisión del Inciso 4.1.1 contra el código)
+- **Fecha de resolución**: 2026-09-30 (commit `3d7f4dc`)
+- **Severidad**: MEDIA (truncamiento silencioso de la generación, sin crash)
+- **Archivos afectados**:
+  - `src/decoder/token_filter.py` (M2: acumulaba un solo id por tier)
+  - `src/decoder/constrained_generator.py` (`_pick_best_token`, el consumidor afectado)
+
+### Síntoma
+
+El docstring del Inciso 4.1.1 promete que si el token ganador no pasa la
+re-simulación char-por-char "se prueba el SIGUIENTE mejor de allowed". Eso nunca
+podía ocurrir: `allowed` llegaba con **un solo elemento**, así que el bucle de
+reintento de `_pick_best_token` agotaba el set en una vuelta y devolvía
+`(None, "")`, que el loop leía como veto y cortaba la generación.
+
+Coincide con el síntoma que BUG-011 ya describía en su resolución
+(`schema_validator.py`): *"sin más candidatos para probar, la generación se
+cortaba"*.
+
+### Análisis de causa raíz
+
+`compute_allowed_ids` tiene dos ramas con contratos distintos, y la diferencia
+no era visible desde el nombre ni desde el docstring (que decía, para ambas, "set
+de ids válidos"):
+
+- **M1** (el argmax crudo del modelo): devuelve como máximo 1 candidato. Fast
+  path: si sobrevive al pase fino, no se validó nada más.
+- **M2** (el top-k del modelo, hasta 2000): recorría el tier y **cortaba en el
+  primer token válido**, devolviendo `return {token_id}`.
+
+M2 es la rama que existe para darle alternativas al pase fino, pero devolvía un
+singleton igual que M1 → el Inciso 4.1.1 quedaba inalcanzable en las dos ramas.
+
+### Resolución
+
+M2 ahora **acumula** los válidos del tier y devuelve el conjunto completo,
+parando en el primer tier que produjo alguno (se preserva el escalonamiento: en
+el caso promedio el primer tier produce un único válido y el resultado es
+idéntico al anterior).
+
+Se documentan los dos contratos de retorno en el docstring de
+`compute_allowed_ids` y la dependencia M1/M2 en `_pick_best_token`.
+
+### Medición — el fix es correcto pero estaba INACTIVO
+
+A/B con el mismo instrumento (11 prompts públicos, prompt byte-idéntico a
+`build_prompt()`):
+
+| | score | forwards | output |
+|---|---|---|---|
+| antes | 10/11 | 137 | — |
+| después | 10/11 | 137 | **byte-idéntico** (mismo md5) |
+
+El veto **no se disparó en ninguno de los 11 prompts**: M1 ganó siempre, o el
+tier que produjo algo tenía un solo válido. Lo que cambia es la *alcanzabilidad*
+del Inciso 4.1.1, no el resultado de esta workload.
+
+**Limitación que sigue viva**: M1 sigue devolviendo un singleton por diseño —
+existe para no validar nada extra cuando la decisión ya está tomada, y su costo
+es que no deja plan B. Si M1 gana y el pase fino lo rechaza, el veto aplica
+igual. Cerrarlo obligaría a que M1 entregara más de un candidato, es decir a
+perder el fast path que lo justifica: es una decisión de diseño, no un bug.
+
+### Lecciones aprendidas
+
+1. Un docstring que promete un mecanismo de recuperación tiene que matchear el
+   contrato real del que depende. "Se prueba el siguiente mejor" era falso en las
+   dos ramas, y eso convirtió un mecanismo de seguridad en un veto silencioso.
+2. **Un fix correcto puede estar inactivo.** La suite no lo delató porque nunca
+   se disparó. La forma de detectarlo fue el A/B byte-idéntico, no el score.
+3. El fast path y la corrección se pueden convivir: la corrección no obliga a
+   abandonar M1, porque M2 es la rama donde el reintento tiene sentido.
+4. Medir el caso de uso real evitó una regresión: se propuso reemplazar el
+   argmax restringido a `allowed` por `logits.index(max(logits))` (argmax
+   global), que resulto **27x más lento** en contexto (~14 ms vs ~0,5 ms)
+   porque recorre el vocabulario completo dos veces contra un set de ≤2000
+   candidatos. El micro-opt válido fue `key=logits.__getitem__`.
+
 ---
 
 <!-- Próximos bugs se agregan acá abajo con el mismo formato -->
