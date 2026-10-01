@@ -1,100 +1,192 @@
 # ESTADO_ACTUAL — call_me_maybe (42 School)
 
-> Archivo de estado DINÁMICO — importado con `@` desde `CLAUDE.md`. Se actualiza al inicio/fin de cada sesión. TODO lo que cambia entre sesiones va acá; CLAUDE.md se mantiene casi estático (prompt caching). Formato COMPACTO a propósito: detalle fino on-demand en `docs/design/`.
+> Archivo de estado DINÁMICO — importado con `@` desde `CLAUDE.md`. Se actualiza al inicio/fin de cada sesión. Formato COMPACTO a propósito: **este archivo es para arrancar sesión y decidir, no para historia.** Detalle fino → `docs/design/`, bugs → `docs/tracking/BITACORA_BUGS.md`, y las series históricas de medición están en el **git history** (no se repiten acá).
 
-**Última actualización**: 2026-09-25 noche (oráculo Nivel 1 implementado — BUG-013 resuelto, suite completa 7.6' / 133 fwd)
+**Última actualización**: 2026-09-27 noche — los 2 KPIs medidos: **latencia <5' CUMPLIDA (4'52")** · **accuracy real 6/11 (54,5%)**, con el fix ya verificado que la sube a **10/11 (90,9%)**.
 
-## HEAD · tests · working tree
+---
 
-- **HEAD**: cierre 24/09 — 7 commits locales **PUSHEADOS a origin/main** (`a4b054d` → bump docs). Submodule `call_me_maybe_docs` **pusheado** (3790ef6 → nota pendientes). Remotos VERIFICADOS 25/09: origin/main == local == `f876719`.
-- **Working tree (25/09 noche) — SIN commitear, listo para commit con OK**:
-  - `src/decoder/constrained_generator.py`: 2º tramo lineal (BUG-013) reemplazado por **oráculo por estado Nivel 1** (`_next_static_text` + `_TRAMPS` T1–T6, funciones puras, `emitted` por iteración, `_inject_static_header` con acumulador opcional).
-  - `tests/test_constrained_generator.py`: clase `TestLevel1Oracle` (canónicos por tramo, dominios disjuntos, BUG-013, insertion order, align E) + `TestInjectOracleText` (simulate() como fuente de verdad) + `TestOracleEndToEnd` (P2-style 9 fwd, fn_empty con T6).
-- **Suite: 195 tests GREEN — VERIFICADO (25/09 noche)** · **flake8 0** · **mypy Success** ✅.
-- **Opt2** (`d6592d0`): header estático inyectado con `encode()` sin forward + hook de métricas. **BUG-011** (`794a470`): fix real en `state.py._step_string` (rechaza `\` en `current_key=="name" and depth==0`); guard viejo en `schema_validator.py` REMOVIDO (quedaba muerto).
-- **BUG-012** (con Opt2, en `d6592d0`): `STATIC_HEADER` debe ser byte-exacto al formato natural del modelo — incluidas las 2 newlines iniciales antes de `{` (ver CONTEXTO_REFACTOR §2.2). Cortarlas rompía "Greet shrek". Restauradas → completan bien.
-- **BUG-013 — ✅ RESUELTO (25/09 noche)**: oráculo por estado con gate **N** (`depth==0 ∧ current_key=="name" ∧ keys_enclosed==∅`) — ver BITACORA + ANEXO D8 (hallazgo: el flag `has_seen_params_object` es sticky y NO puede gatear T6 con tokens fusionados).
-- **Stash**: `stash@{0}` refactor-metrics descartado · `stash@{1}` anexo-reverted. NO tocar.
-- **Scratch FUERA del repo** (correr SIEMPRE con `cwd = repo`): `~/scratch/call_me_maybe_task42/` (task43_accuracy.py, bench_p8_vs_p2.py, vocab_study.py). Backup muerto `~/scratch/PENDING_DELETE__call_me_maybe_backup_mario_validation/` (borrar cuando se descarte).
-- `data/output/` (git-ignored): `metrics_run.json` + `metrics_run.log` — destino de métricas.
+## 🔴 1. ESTADO DEL DÍA — leer esto primero
 
-## Mediciones — suite Task 4.3 (Qwen3-0.6B, threads=4, warm-up descartado) · 24/09 vs ref 23/09
-
-| Métrica | 23/09 ref | 24/09 | Δ |
+| Criterio del subject | Bar | Medido | Estado |
 |---|---|---|---|
-| generación | 1656.4 s (27.6') | **908.6 s (15.1')** | **-45%** |
-| total c/carga | — | 16.8' | — |
-| avg/prompt | 150.6 s | 82.6 s | -45% |
-| forwards | ~638 (58/p) | **314 (28.5/p)** | **-51%** |
-| KPI <5' | 5.5x | **3x INCUMPLIDO** | — |
+| Suite de 11 prompts | < 5 min | **4'52,72"** | ✅ CUMPLE (4,7% de margen) |
+| Accuracy full (M14) | ≥ 90% | **6/11 = 54,5%** | 🔴 FALLA · con el fix **10/11** ✅ |
+| Accuracy fn (nombre) | — | 11/11 (100%) | ✅ |
+| Entregable | archivo existe | ✅ 11 entries en `data/output/function_calling_results.json` | ✅ |
+| lint (`make lint`) | == moulinette | flake8 0 · mypy 23 files | ✅ |
+| tests | verde | **206 passed** | ✅ |
 
-- **accuracy fn: 11/11 (100%)** · **accuracy full: 9/11 (82%) — bar M14 (≥90%) NO pasa**.
-- Per prompt (s): 92.2 · 98.4 · 64.0 · 59.2 · 59.2 · 49.7 · 58.2 · 61.5 · 130.3 · 113.2 · 122.7.
-- Forwards por fase (314): IN_STRING_VALUE **109 (35%)** · PARAMS_OBJECT 38 · COLON 36 · VALUE_END 33 · IN_KEY 33 · KEY_START 30 · IN_OBJECT 22 · IN_NUMBER_VALUE 13. **skips_if_single = 0 (3ra vez → M5 código muerto)**.
-- JSON: `data/output/metrics_run.json` (warm_up_discarded=true, 908550 ms, 314 fwd, desglose por fase).
-- ⚠ La suite completa (908.6s / 15.1') corrió con la versión ANTERIOR del header (sin fix BUG-012). La remedición aislada con BUG-012 resuelto está abajo — los tiempos individuales bajaron más.
+**El único bloqueante de la bar M14 es la coerción `int`→`float`** (§4). Está verificada end-to-end, son ~5 líneas, y **falta tu OK para tocar código**.
 
-## Remedición aislada P2/P8 post-Opt2 (sesión-tarde 24/09, con BUG-011/012 ya resueltos)
+### 1.1 Latencia — la carrera de hardware se CERRÓ
 
-- **P2** (Greet shrek): 113.2s → **48.5s (-57%)** · **P8** (regex, peor caso): 242.5s → **125.9s (-48%)**. Aislado (2/11 prompts) — NO reconciliado todavía con el run completo de la suite.
-- `skips_if_single = 0` en TODAS las fases, 3ra medición → **M5 (skip-if-single) = código muerto confirmado**.
+Corrida **limpia** (agente cerrado, cargador conectado, 4 vCPU 1:1 + `cpuexecutioncap 80`):
 
-## Benchmark 2º tramo + probe fn_empty (madrugada 25/09, working tree sucio BUG-013)
+| | 25/09 (6 vCPU) | 27/09 12'49 (**contaminada**) | **27/09 noche (LIMPIA)** |
+|---|---|---|---|
+| wall | 389,1 s | 769,3 s | **292,72 s (4'52,72")** |
+| CPU / cores efectivos | — / 4,0 | 257% / 2,57 | **336% / 3,364** |
+| CPU-s por forward | ~9,9 | 14,87 | **7,40** |
+| RSS máx | — | 4,65 GiB | **4,65 GiB** |
 
-- **P8 con 2º tramo activo**: 56→49 forwards (−7 exactos), output válido ✅. **P2 CORRUPTO** → **BUG-013** (detalle en BITACORA): con el trigger viciado, el timing de esa corrida NO es limpio (forwards extra por output degenerado).
-- **Probe paso 0 fn_empty (modelo real, Qwen3-0.6B, threads=4)**: función sin parámetros → **`"parameters": {}` — cierre INLINE** (sin newline ni indent). **Observación**: el probe terminó `SUCCESS=False` (faltó el `}` final del ROOT) — conectado a la causa raíz de BUG-013 (estado residual `current_key` al bajar de depth); diagnóstico en la implementación del oráculo.
+- **La regresión de 2,63x de las 12'49 fue 100% el agente vivo**: 1,31x (más cores) × 2,01x (el doble de eficiencia por núcleo) = 2,63x ✓. **Ninguna medición de latencia sirve si el agente está vivo** — comparar siempre con `opencode` cerrado.
+- 🔑 **El código corre al 99,2% del techo de hardware de la VM** (3,364 de los 3,39 cores medidos con curva de saturación, `steal=0.00`). **No queda margen en el guest: cualquier mejora futura de latencia tiene que ser CÓDIGO, no config.**
+- 🔑 **El output es BIT-IDENTICAL al de las 12'49 bajo 257% vs 336% de CPU** → **el decode es reproducible, no es lotería de threading**. Cierra la pregunta abierta del 25/09 y descarta a BUG-012 y al float16 como causas de los fallos.
+- ⚠ **Único hueco de medición abierto: el 2x de CPU-s/forward NO tiene causa.** Con MENOS cores ocupados la eficiencia por núcleo fue MEJOR → no es contención. `steal=0.00`. Hipótesis: SMT del host o power/thermal. No bloquea la entrega.
 
-## Benchmark oráculo Nivel 1 (noche 25/09, modelo real, threads=4, warm-up descartado)
+### 1.2 Accuracy — el 82% era fiction
 
-| Caso | Ref 23/09 | Opt2 (d6592d0) | **Oráculo N1** | Δ vs ref |
+**Medido con el corretero real: 6/11 (54,5%)**. Los 5 fallos:
+
+| Test | Síntoma | Causa raíz | ¿Arreglable? |
+|---|---|---|---|
+| P0, P1 (`2+3`, `265+345`) | `invalid parameters` | emite `2` (int) donde va `2.0` (float) | ✅ **un solo bug, 6 valores** |
+| P6, P7 (sqrt 16, 144) | `invalid parameters` | ídem | ✅ ídem |
+| P9 (vowels→asterisks) | `wrong output` | `replacement: "****"` en vez de `"*"` | ❌ techo del modelo |
+
+- 🔑 **La causa NO es el decoder: es el schema.** `extract_functions_infos.TYPE_MAP` mapea `int → "integer"` y `float → "number"`, así que `"number"` en el JSON proviene **exclusivamente** de un float de Python, y la moulinette asserta `isinstance(a, float)`. **La coerción keyeada en el tipo declarado es la traducción fiel del schema, no un parche.**
+- ⚠ **Un blanket "todo número → float" ROMPE el set privado**: `fn_is_even(n: int)` asserta `isinstance(n, int)`. **`fn_calculate_compound_interest` tiene `principal`/`rate` = `number` y `years` = `integer` en la MISMA función** → el tipo declarado es la única clave que desambigua.
+- **`task43_accuracy.py` (scratch) NO es oráculo de accuracy: sobreestimaba 5,5 puntos.** Sólo `grade_real.py` sirve.
+- **`P9` ya no falla** por `NUMBER`/`NUMBERS` (trae `NUMBERS` correcto) y **`P10` nunca falló** por el grupo capturador (con replacement literal, `re.sub("([aeiou])","*",s)` da lo mismo que sin paréntesis). Las dos notas viejas al respecto eran **FALSAS**.
+
+### 1.3 P9 — diagnóstico con medición, no intuición
+
+Un forward sobre el prefijo exacto que la state machine ya había inyectado:
+
+```
+'****'  logit 19,130   ← lo que emitimos
+'*'     logit  5,359   ← lo esperado     → delta 13,77, rank 6.302
+```
+
+El **top-15 global entero** es de asteriscos e inglés (`aster` 18,24 · `stars` 16,04): el modelo **nunca decidió emitir un carácter**, sigue en la palabra inglesa "asterisks".
+
+- 🔑 **REENCUADRE: el modelo es un COPIADOR LITERAL, no un abstractor.** Los **6 tests cuyo argumento está VERBATIM en el prompt pasan los 6** (shrek, john, hello, world, NUMBERS, dog). **El único string que NO está literal en el prompt es P9, y es el único fallo de string.** P9 no es un bug de asteriscos: es el techo del modelo.
+- **Ningún filtrado en el decoder lo arregla** (el candidato está, 13,77 logits abajo). Sólo el prompt lo mueve, y `build_function_list` (`src/prompt/prompt_builder.py:61`) hoy imprime sólo `name (type)`, sin semántica de parámetro.
+- 🔴 **Tunear el prompt hasta que P9 pase es ENVENENADO**: es un test público y el peer review lo ve. **Recomendación: cobrar el 10/11 y documentarlo como limitación conocida con esta medición.**
+
+---
+
+## 2. HEAD · tests · working tree
+
+- **HEAD**: `e415a6c` — **`main` está 1 commit AHEAD de `origin/main`, SIN PUSH**.
+- 🔴 **Working tree SIN commitear, listo para commit con OK — fix del SET PRIVADO (4 archivos, +211/-6)**:
+
+  | Archivo | Qué hace | Qué pasa si NO está |
+  |---|---|---|
+  | `src/models/function_definition.py` | `ParameterType` acepta `"integer"` | 🔴 **El programa NO ARRANCA con el set privado**: `ValidationError: literal_error, input_value='integer'`. **0 en la mitad de la evaluación.** (verificado) |
+  | `src.decoder/schema_validator.py` | `_declared_type_accepts()` — compatibilidad en vez de igualdad | 🟡 Cada prompt con un parámetro declarado `integer` da **output truncado** (`allowed` vacío → `break` en `constrained_generator.py:442`) → `build_results` emite el placeholder `__unparseable__` → **ese test en 0, los otros 10 bien**. (leído del código, no medido) |
+
+  **Son dos cambios encadenados, no dos bugs.** Y son **complementarios de la coerción float/int, no alternativos**: el `"integer"` es para que el decoder NO rechace el valor; la coerción es para que el TIPO de Python que salga sea el que la moulinette asserta. `fn_calculate_compound_interest` necesita los dos en la misma función.
+  **La regla que implementa el 2º cambia exactamente 1 celda de 20** de la matriz kind×declared: `(number, integer)` False→True. Todo lo demás idéntico (verificado).
+
+- **Suite: 206 tests GREEN** · **flake8 0** · **mypy 23 archivos** ✅
+- Commits clave: `d6592d0` Opt2 (header estático) · `794a470` BUG-011 · `0c59092` oráculo Nivel 1 (BUG-013) · `e415a6c` entregable + 3 bloqueantes de peer review.
+- **Stash**: `stash@{0}` refactor-metrics descartado · `stash@{1}` anexo-reverted. **NO tocar.**
+- `data/output/` es **git-ignored** (destino de métricas y del entregable, no se versiona).
+
+---
+
+## 3. ARQUITECTURA DE LATENCIA — lo que hay que saber para optimizarla
+
+- 🔑 **El tiempo escala lineal con TOKENS DE SALIDA, no con el candidate set.** El SDK **no tiene KV-cache**: cada forward re-alimenta la secuencia completa. Confirmado: P1 (34,3 s) vs P0 (12,4 s) con el mismo schema (solo `265`/`345` son multi-token); P9 y P10 cuestan 40,3 y 42,2 s con schema casi idéntico. **Reducir candidatos NO abarata el forward**; sólo evita forwards si logra singleton.
+- **Forwards de strings ≈ tokens BPE + comilla final, EXACTO** — no hay margen en strings libres.
+- **133 forwards** para los 11 prompts. Fases: `IN_STRING_VALUE` **82% del tiempo**, `IN_NUMBER_VALUE` 13 fwd, el resto de estructura **0 fwd** (todo por oráculo).
+- **Per-prompt (s)**: 20,1 · 34,3 · 12,4 · 10,1 · 10,4 · 10,4 · 18,5 · 21,9 · **58,5** · 40,3 · 42,2. P8 = 21% del total (el más largo, y PASA).
+- **Overhead de arranque = 13,64 s (4,7% del wall)**: pesos ya cacheados (0,58 s) + índice de vocab de 151.643 + trie. Pre-índice y header estático lo dejaron en el plagó. **Ahí no hay más que ganar.**
+- **Techo de la VM = 3,39 de 4 cores (85%)**, `steal=0`. Con `cpuexecutioncap 80` el techo real es 3,2. **El ambiente de fondo se come 1,29 cores (32%) con la VM "idle"** (`opencode`, `gnome-shell`, `tracker-miner`).
+- **Pillow de CLUSTER (mismo código, mismo build `+cpu`): 0,56 s/fwd, 133 forwards, 1'14".** Local quedó en **2,10 s/fwd → 3,75x de brecha, y ya NO es config: es hardware de host** (i7-7700HQ de notebook vs nodo de cluster).
+- **Vocab (151.643 tokens)**: 96,87% son `string_safe` → bucketizar `IN_STRING_VALUE` NO sirve. El BPE fragmenta dígitos y puntuación (peor 2,17 chars/token).
+- **Palancas que quedan, ninguna barata**: B′ (autocompletar `fn_name` por trie) y Nivel 2 del oráculo. Diferidas por decisión del usuario. El KPI ya se cumple → esto es hambre, no supervivencia.
+
+**Hardware de la VM (leer antes de medir)**: host i7-7700HQ = **4 núcleos físicos / 8 hilos** · VM Ubuntu 22.04 con **4 vCPU 1:1** + cap 80 · `threads=4` (default = nproc, no hay `set_num_threads` en el código) · **SIN GPU** (`VMware SVGA II` emulada, torch `2.13.0+cpu`, `cuda.is_available()=False`) · RAM: host 24 GB − VM 15 GiB (**NO era 64G**, anotación vieja falsa) · ⚠ **`--cpuexecutioncap` se aplica con `controlvm`, NO con `modifyvm`** (que exige VM apagada) y es **PER vCPU**.
+
+**El decoder es device-agnostic**: `llm_sdk` resuelve device (mps > cuda > cpu) y dtype solo, y `get_logits_from_input_ids` devuelve `list[float]` → **`src/decoder/` es CPU puro**. En un equipo con GPU corre sin tocar `src/`: `pip install torch accelerate` y listo. El formato de salida es invariante al device (header y tail se **inyectan** vía `encode()` sin `forward()`; la estructura la imponen `compute_allowed_ids` + `SchemaContext`). **Test de humo pendiente**: guardar el golden de CPU y diffear en GPU — si da idéntico, el tema queda cerrado para siempre. ⚠ **Costo latente en GPU**: `[float(x) for x in out.logits[0,-1].tolist()]` es un no-op semántico que cuesta **26,4 ms/step** (1% en CPU, **17–53% en GPU**) más el `sorted()` de `token_filter`.
+
+---
+
+## 4. 🔀 VÍAS DE SOLUCIÓN — decidir (bloqueante de la entrega)
+
+### Bloqueante 1 · coerción `int`→`float` (6/11 → 10/11 = 90,9%, cumple M14)
+
+Regla común a las tres: **keyeada en el tipo declarado del schema, NUNCA blanket**. Si `param.type == "number"` y el valor parseado es `int` → `float(valor)`. Si es `"integer"` → se deja el `int`.
+
+| Vía | Dónde | Tamaño | Riesgo | Veredicto |
 |---|---|---|---|---|
-| P2 fn_greet | 113.2 s | 48.5 s (-57%) | **16.8 s** | **-85%** |
-| P8 regex | 242.5 s | 125.9 s (-48%) | **80.4 s** | **-67%** |
+| **A** ⭐ | `src/validator/output_validator.py:152` `build_results()` — frontera de serialización, después de `parse_output` | ~5 líneas | **cero**: `16.0 == 16` exacto, determinista, no puede cambiar el valor | **Recomendada** — testeable sin modelo, legible para el revisor |
+| **B** ❌ | En el decoder, bloqueando el cierre del número hasta `dígito . dígito` | media | **ALTO**: obliga al modelo a elegir el dígito post-punto sin razón → puede emitir `2.5` donde debía emitir `2.0`, **cambiando el valor semántico** | **Descartada** |
+| **C** ⭐ | `src/decoder/constrained_generator.py` — splice de `model.encode(str(float(v)))` en los `input_ids` al completar el número | hook en el hot loop + re-simulación con `copy(state)` | cero en el valor, peor legibilidad | Alternativa válida si se prioriza consistencia |
 
-- **Forwards**: P2 = **7** (piso teórico: solo los chars del value `"shrek"`); P8 = 29 (los 3 values strings). Las fases de estructura (IN_OBJECT/PARAMS_OBJECT/VALUE_END) quedaron en **0 forwards** — toda la sintaxis sale por el oráculo.
-- **Probe fn_empty post-fix**: **SUCCESS=True** (25.1 s) — el `}` final del ROOT lo inyecta T6; output byte-exacto `'\n\n{\n  "name": "fn_empty",\n  "parameters": {}\n'`.
-- **Suite completa con oráculo (25/09 noche, corrida 1)**: **7.6 min de generación** (15.1' con Opt2 → **-50%**) · accuracy fn 11/11 (100%) · full 9/11 (82%, misma bar M14 — P9/P10 regex semántico) · **133 forwards** totales. Fases: IN_STRING_VALUE 114 fwd (372.3s — 82% del tiempo), IN_NUMBER_VALUE 13 (58.3s), COLON 6 (23.9s — tokens fusionados), IN_OBJECT/PARAMS_OBJECT/VALUE_END = **0 fwd** (estructura 100% oráculo). **KPI <5' INCUMPLIDO**.
-- **Suite completa (25/09 noche, corrida 2 — governor SIN límite de batería)**: **6.5 min (389.1s)** con los mismos **133 fwd** → costo por forward **3.42 → 2.93 s (-14%)**. El grueso en IN_STRING_VALUE (372.3s → 303.1s). La máquina no expone cpufreq (entorno virtualizado): la limitación quedó como variable no visible, el efecto se mide en el timing. KPI ~1.3x.
-- **Conclusión KPI (25/09 noche)**: con 2.93 s/fwd (governor libre), B′ (~31 fwd) deja ~97 fwd → ~4.8-5.5' (borde del KPI; a 2.93 s/fwd: 97×2.93 = 284s = 4.7'); B′+Nivel 2 → piso real ~5.0-5.6' según governor. El piso físico son los ~96 values libres del modelo (string+number) — irreductibles sin semántica/KV-cache (prohibidos). **KPI <5' al filo, depende de governor/ruido** → decisión estratégica pendiente de usuario (hardware / aceptar KPI por prompt / redefinir).
+- 🔑 **C es INSERCIAL, no destructivo** (verificado): los ids del float son **superconjunto** de los del int — `265`→`[17,21,20]` vs `265.0`→`[17,21,20,13,15]`. Se insertan `[13,15]` (`".0"`). **R2: 0 de 151.643 tokens contienen dígito+coma → el splice es atómicamente seguro.**
+- **C no gana accuracy** (mismo texto, mismo 10/11). Gana **consistencia**: los `input_ids` que condicionan al modelo son los que se emiten — importa porque no hay KV-cache. **A gana legibilidad. El trade-off es ese, nada más.**
+- **Tests para A o C**: (i) `"number"`+int→float · (ii) `"number"`+float→float idempotente · (iii) `"integer"`+int→int **intacto (el caso del set privado)** · (iv) `string`/`boolean`/`null` intactos · (v) E2E con `grade_real.py` → 10/11.
 
-## Estudio del vocabulario (24/09) — `~/scratch/call_me_maybe_task42/vocab_study.{py,_results.json}`
+### Bloqueante 2 · P9 (el único fallo restante — NO relaxing, NO hardcodear)
 
-- `string_safe` = 96.87% de 151,643 → bucketizar IN_STRING_VALUE NO sirve (wildcard ≈ gratis).
-- BPE fragmenta dígitos/puntuación: peor 2.17 chars/token ("Hello 34 I'm 233 years old" = 12 tokens); global 3.33; palabras 5–6.
-- 395 tokens con backslash (incl. `\n` tid 1699, `\t`, `\\`, `\"`) · 1,344 con comilla (0.9%) · bucket " " = 53k (35%).
-- Forwards de strings ≈ tokens BPE + comilla final, **EXACTO** (probe de segmentación 25/09: P8 7+13+3+2 = 25 == 25 medidos) → **NO hay ~40% titubeo (nota vieja REFUTADA)**. El margen está en la estructura (oráculo + B′), no en valores de strings libres.
+| Vía | Veredicto |
+|---|---|
+| Filtrar candidatos en el decoder | ❌ **imposible**: `*` está presente, 13,77 logits abajo |
+| Prompt enrichment genérico (descripción por parámetro + ejemplo) | ⚠ legítimo pero **sin garantía** — no puede inventar "asterisks" → `*` |
+| Mentionar asteriscos en el prompt | 🔴 **overfitting a un test público que el peer review ve** — NO |
+| **Documentarlo como limitación conocida con la medición** | ⭐ **Recomendado** |
 
-## ⚠ Pendientes de la cancha (24/09)
+**Si A → 10/11 = 90,9% → M14 CUMPLIDA y P9 deja de bloquear la entrega.**
 
-1. **Bar M14 al 82%: los 2 fallos son SEMÁNTICOS, no del decoder.** JSON 100% válido en los 11. P9: `replacement='NUMBER'` vs "...with NUMBERS". P10: regex `([aeiouAEIOU])` (con grupo) vs expected sin paréntesis. → decidir: relajar expected o exigir.
-2. **BUG-011 — RESUELTO y commiteado** (`794a470`): un token BPE que ES el escape completo (ej. `\n` fusionado, tid 1699) resuelve ESCAPE_IN_STRING→IN_STRING_VALUE DENTRO de `simulate()` → el `new_state` que ve el schema nunca queda en ESCAPE_IN_STRING → un guard ahí no lo atrapa (repro real: "Greet shrek" → `'{\n  "name": "f'`, success=False, 200 forwards). Fix real en `state.py`: rechaza `\` AL LEERLO si `current_key=="name" and depth==0`. Verificado: 170 green.
+---
 
-## Pistas verificadas para seguir optimizando (contexto próxima sesión)
+## 5. ✅ Pendientes — PARA RETOMAR (27/09 noche)
 
-- **El forward es compute-bound, no filter-bound**: costo casi uniforme (~4.4–5.9s) sin importar el candidate set (ROOT chico ≈ IN_STRING_VALUE con casi todo el vocab) — confirmado por profiling por fase + estudio de vocabulario. Acotar candidatos (trie/Opt1 en `IN_KEY`) NO abarata cada forward; solo evita forwards SI logra singleton (no evaluado a nivel token BPE).
-- **Forwards de `IN_STRING_VALUE` = tokens BPE + comilla final, EXACTO** (probe 25/09) — NO hay margen en strings libres; prompts con dígitos/puntuación (P8) fragmentan peor. Irreductible sin SDK.
-- **Opt2 es la palanca real para forwards NO-string** — pero byte-exacto (BUG-012); variante "optimizada" = riesgo de regresión silenciosa.
-- **Fase 2 (oráculo por estado) es la palanca VIGENTE**: generaliza el 2º tramo a tabla de tramos por estado (E/K), fix BUG-013 de raíz. Espera contrato de interfaces del diseño consultado (`_next_static_text`, `emitted`, spec de tramos). Registro completo en ANEXO (25/09).
+1. 🔴 **Implementar la coerción** (A ~5 líneas o C) + los 5 tests + correr `grade_real.py` para confirmar 10/11. **Único bloqueante de M14. Requiere OK del usuario para tocar código.**
+2. 🔴 **Commitear el fix del set privado** (§2) — ya verificado en verde. **Sin el 1º de los dos el programa NO ARRANCA con el set privado.**
+3. 🔴 **`git push`** — `main` 1 commit adelante (`e415a6c`).
+4. 🔴 **Decidir compliance IV.3.1** ("All classes must use pydantic"): **6 de 9 clases de `src/` no son Pydantic** (5 dataclasses + `SchemaContext` plana). Sigue ABIERTO y **ningún plan lo trata como riesgo**. Leer `docs/design/ANALISIS_ALINEACION_PLANES_VS_MOULINETTE.md` ENTERO antes de decidir Etapa 2 o 5 del plan v2.
+5. 🟡 **Smoke test del SET PRIVADO end-to-end** — **nunca se midió accuracy contra el set privado, que es la mitad de la evaluación.** Ya hay `private_smoke_input.json` / `private_smoke_output.json` en `/tmp/cmm/`.
+6. 🟡 **Registrar el conteo de forwards en el output** — es la unidad de medida de toda §3 y hoy no existe.
+7. 🟡 **Investigar el 2x de CPU-s/forward** (SMT del host vs power/thermal). No bloquea.
+8. 🟡 **Tasks 5.1–5.3 + DoD5 + 6.1–6.5**: `src/validator/` existe pero **no valida que los `parameters` encajen con el schema de la función elegida** (TODO explícito en `validate_output`, L126-131); falta 5.3 (formato de salida) y las de métricas/reports no-LLM.
+9. 🟡 **B′ (autocompletar `fn_name` por trie)** y **Nivel 2 del oráculo** — la única vía de latencia que queda.
+10. 🟡 **Test de humo en un equipo con GPU** (golden de CPU diffeado).
+11. ⚪ **Backups de probes en `/tmp/` (se pierden al reiniciar)**: `grade_real.py` (**el corretero real sin `fire` — recrear primero**), `probe_ceiling.py` (curva de saturación), `probe_p9.py` (los logits), `probe_integer_fix.py` (la matriz 20 celdas). Los logs que hay que preservar están en `/tmp/cmm/`: `suite_run.txt`, `grade_after.txt`, `answer_6of11_original.json` (6/11), **`answer_float.json` (el 10/11 verificado)**, `functions_definition_private.json`.
+12. ⚪ **Scratch fuera del repo** (correr siempre con `cwd = repo`): `~/scratch/call_me_maybe_task42/` — `task43_accuracy.py` (⚠ **ya no es oráculo de accuracy**), `bench_p8_vs_p2.py`, `vocab_study.py`. Borrar `~/scratch/PENDING_DELETE__call_me_maybe_backup_mario_validation/` cuando se descarte.
+13. ⚪ **Migrar el `moulinette/` del repo fuera de la entrega** (es dependencia de la cátedra, no código nuestro) y **bump del puntero de `docs/`** (submodule privado, commit aparte — `docs/` NO va en la submission).
+14. ⏳ **Higiene de la entrega — prosa y referencias colgantes** (pedido del usuario 28/09). **SECUENCIADO: va DESPUÉS de cerrar M14 y la medición de latencia.** Objetivo: que un revisor encuentre la lógica en menos de 2 líneas de lectura.
+    ⚠️ **Las MÉTRICAS NO SE BORRAN — son el bonus B7** (ver §5.14bis). Este pendiente es sólo *poda de prosa*, nunca *eliminación de instrumentación*.
 
-## Nota de sesión — revisión del diseño del oráculo (25/09, solo diseño/verificación, sin código)
+    **Medición del problema (28/09)**: `src/` tiene 3474 líneas; **1691 son prosa** (1109 de docstrings + 582 de comentarios = **48,7%**). Código real: 1333.
 
-- **Aprobado por usuario**: reemplazar `P` por `N` en los dominios; `emitted` derivado por iteración desde `input_ids[prompt_length:]` vía `id2decoded` (nunca acumulado a mano ni reseteado por commit). **Composición** T1/T2 + `ENTRY(K1)` en UN solo `encode()` (evita costura `{`|`\n`; existe el token fusionado `{Ċ` id 515) — confirmada por lectura de `state.py` (estado post = IN_STRING_VALUE d1 si K1 string, COLON d1 si no; `name_buffer` intacto por `depth==0`). En tests, el estado post debe salir de `state.simulate(C)`, no de una tabla a mano.
-- **Fallos del prompt de diseño detectados**: (1) `keys_enclosed==∅` solo NO alcanza — con cero parámetros también vale tras cerrar `parameters`; lo salva `current_key=="parameters"`, por eso el gate es N; (2) el estado NO registra el whitespace consumido (ciego a ws) → hace falta `E` = ws final de `emitted`, si no un tramo duplica el `\n` (riesgo tipo BUG-012); (3) "titubeo 40%" refutado (ya anotado arriba).
-- **Hueco lateral (leído, NO reproducido)**: `has_seen_params_object()` solo se enciende si el token TERMINA en `PARAMS_OBJECT` (`schema_validator.update`); un token BPE que cruce `{` y siga deja P=False → puede hacer que el pase fino rechace un COMPLETE legítimo ("sin PARAMS_OBJECT"). No tocado. Solo es seguro usar P en la dirección "inyectar solo si abierto" (falso negativo cae a forward).
-- **Estimación vs medido**: piso estimado 128 fwd (109 IN_STRING_VALUE + 19 números, identidades verificadas: P2 7=4+3, P8 25=7+13+3+2, IN_NUMBER_VALUE 13=Σ(dígitos−1+1)) vs **133 medidos** con oráculo N1 (+5 en COLON por tokens fusionados). Tiempo: estimé 6.2' a 2.89 s/fwd; medido 7.6' a 3.42 s/fwd — el s/fwd real subió (sensible a temperatura), el conteo de forwards fue correcto.
-- **Dato de vocabulario (verificado en `vocab.json` de Qwen3-0.6B)**: existen los tokens fusionados `{}` (6257), `Ġ{}` (4687), `{Ċ` (515), `",Ċ` (756), `,Ċ` (345), `":` (788), `Ġ"` (330).
-- **⏳ ABIERTO (pregunta sin responder del usuario)**: caso `ord=∅` (función sin parámetros) en T1/T2: ¿devolver `None` (recomendado: `parameters: {}` natural usa `{}` fusionado y el probe real dio cierre inline; inyectar `{` suelto crea costura no verificada) o inyectar hasta `{` (estado post PARAMS_OBJECT d1, ρ=0, sin loop)? **Acción al retomar**: revisar en `constrained_generator.py` qué hace hoy T1/T2 con `ord=()` (no lo verifiqué contra la implementación) y contrastar con el probe fn_empty (SUCCESS=True, `"parameters": {}`).
+    | Qué | Veredicto | Evidencia |
+    |---|---|---|
+    | **Referencias a `docs/` desde `src/`** | 🔴 **defecto duro** | `function_loader.py:66` → `BITACORA_BUGS.md` · `constrained_generator.py:63` → `CONTEXTO_REFACTOR.md`. `docs/` es un repo **privado** (`github.com:lautarolma/call_me_maybe_docs`) y **no va en la submission**: punteros que el revisor no puede abrir. Hay que **inlinear el porqué** en el docstring |
+    | **Fechas de diario** en comentarios | 🟡 ruido puro | `(2026-09-18)`, `(2026-09-23/24)`, `dec. 25/09`, `probe 25/09` — ~10 ocurrencias. Al revisor le importa el BUG, no cuándo se encontró |
+    | **Refs al plan externo** | 🟡 misma clase colgante | `PLAN_DIDACTICO L1615/L1696`, `Inciso 4.1.1`, `Anexo §2.2` (4+2+2 ocurrencias). El revisor no tiene esos documentos |
+    | **Deliberación auto-referencial** | 🟡 | Frases que narran la conversación en vez del diseño ("POR QUÉ ES UN HELPER Y NO UN if EN EL LOOP", "DESVÍO del plan (ver docstring del módulo)"). Recortar a la decisión + el porqué |
+    | **Traducir la prosa a inglés** | 🔴 **NO** | Los comentarios en español son el estilo de la casa y la pedagogía del 42. Son 1691 líneas: reescribirlas cuesta muchísimo y **no suma un punto de la planilla**. El problema es el *volumen* y el *qué dice*, no el idioma. Ojo: el **README sí va en inglés** (exigido por el subject, cap. VII L676) |
 
-## Pendientes — PARA RETOMAR (orden del usuario, 24/09 noche + 25/09)
+    **Orden de ataque sugerido**: (1) los 2 punteros colgantes — son 2 líneas y son los únicos que rompen algo; (2) fechas + refs al plan, que es `sed`-eable; (3) la poda de volumen, archivo por archivo, empezando por `schema_validator.py` (57,7%) y `constrained_generator.py` (43,7%).
 
-1. ✅ **Suite completa con oráculo Nivel 1 — CORRIDA (25/09 noche)**: 7.6' (vs 15.1' Opt2, -50%), 133 fwd, fn 100% / full 82%, KPI <5' incumplido (piso físico ~5.6' — ver sección benchmark).
-2. ✅ **BUG-013 — RESUELTO (25/09 noche)**: oráculo por estado con gate N; hallazgo P-sticky (tokens fusionados) documentado en BITACORA + ANEXO D8.
-3. ✅ **Oráculo por estado (Modelo A) — IMPLEMENTADO** (T1–T6, Nivel 1; Nivel 2 / tokens fusionados DIFERIDO hasta medir el residuo).
-4. ✅ **Probe fn_empty — SUCCESS=True** (25.1s): el `}` del ROOT que faltaba lo inyecta T6.
-5. ⏳ **B′ (autocompletar fn_name por trie)** — DIFERIDO (decisión usuario): recién después de medir el Modelo A completo.
-6. ⏳ **Decisiones de estrategia (requieren usuario)**: KPI <5' (con oráculo se acerca) — aceptar por prompt / hardware-modelo / re-diseñar; bar M14 (82% vs ≥90%) — relajar expected (P9 `NUMBER`/`NUMBERS`, P10 regex con grupo) o exigir.
-7. ⏳ Tasks 5.1–5.3 + DoD5 + 6.1–6.5 (`src/validator/` no existe; pipeline NO persiste output — a4b054d solo desacopló prints).
+14bis. 🎁 **BONUS B7 — Visualización de la generación, CON estilo y color** (corregido por el usuario 28/09: *"son parte del bonus de representación, las vamos a usar para enseñar los resultados de la ejecución"*). **NO eliminar la instrumentación — es lo que se demuestra.**
 
-## Protocolo de actualización
+    **Verificado contra el enunciado oficial** (`docs/sources/en.subject.pdf`, cap. VII *Bonus Part*):
+    - L689: *"Visualization of the generation process"* — bonus oficial.
+    - L693: *"Bonus features must be implemented and **working** — not just described in the README.md."*
+    - 🔑 L694: *"You may be asked to **demonstrate them during evaluation**."* → no es decoración: **la evaluación puede pedir una demo en vivo.** Por eso el color tiene que ser el vehículo de la explicación, no adorno.
+    - Diseño ya definido en `PLAN_DIDACTICO.md` M13 B7: flag `--visualize` step-by-step, **verde = allowed · rojo = blocked · amarillo = estado actual**.
 
-- INICIO de sesión: verificar el real (`git status -sb`, `git log --oneline -3`); actualizar si difiere. CIERRE: reflejar HEAD, tests, mediciones. Estado desactualizado = peor que ninguno.
+    | Pieza | Qué hay | Qué falta |
+    |---|---|---|
+    | `MetricsRun` (`utils/metrics.py`) | forwards, skips, elapsed por `DecoderPhase` | — |
+    | `report_prompt_metrics()` (28/09) | tabla por prompt + `decode_metrics.json` | estilo/color |
+    | Doble camino de reporte | `report()`/`write_json()` (sólo los usan sus tests, y `report()` fija `warm_up_discarded: True` **falso en el pipeline**) | **unificar** en UN camino, con estilo — no borrar: son la fuente de datos de B7 |
+    | `--visualize` step-by-step | ❌ no existe | el verde/rojo/amarillo de B7 |
+
+    ⚠️ **Regla de ingeniería, NO hardcodear ANSI**: gatear con `sys.stdout.isatty()` y respetar `NO_COLOR` (https://no-color.org). Motivo concreto: el output de la corrida se **pega en el chat y se guarda en logs** — los códigos de escape ensucian la evidencia y rompen el diff de métricas. El color sólo cuando hay terminal de verdad; la corrida normal queda limpia.
+
+
+---
+
+## 6. Protocolo de actualización
+
+- **INICIO**: verificar el real (`git status -sb`, `git log --oneline -3`, `make test`, `make lint`) y actualizar si difiere. **Nunca tocar código con rojo.**
+- **CIERRE**: reflejar HEAD, tests, mediciones. **Estado desactualizado = peor que ninguno.**
+- **Regla de higiene**: este archivo se **recorta**. Si un dato es histórico y ya no cambió una decisión, va al **git history** o a `docs/design/`, no acá. Series de medición viejas, benchmarks superados y notas de diseño ya digeridas **no se reproducen** — se acotan a la conclusión vigente.
+- **Nunca medir latencia con el agente vivo** (§1.1) — contamina por 2,6x.
