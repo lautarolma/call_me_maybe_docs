@@ -148,7 +148,7 @@ probes de /tmp se perdieron. lowest value; sólo recuperarlos si hacen falta.
 
 | Descartado | Por qué |
 |---|---|
-| **Prompt engineering** para P9 | El LLM no tiene la capacidad: no reconoce el `****` como reemplazo válido de una vocal (4 templates, siempre 0 ejemplos). P9 es **límite del modelo**, no bug. El KPI de accuracy (≥90%) ya se cumple con 10/11. Tocar el prompt arriesga los otros 10 tests + latencia. |
+| **Prompt engineering** para P9 | El LLM no tiene la capacidad: no reconoce el `****` como reemplazo válido de una vocal (4 templates, siempre 0 ejemplos). El diagnóstico sigue siendo correcto — `*` está 13,77 logits abajo del top-1. Tocar el prompt arriesga los otros 10 tests + latencia. **PERO la conclusión "cobrar el 10/11" que se sostenía acá era FALSA**: salió de comparar un output crudo (28-sep, sin validador) contra uno ya reparado (smoke de hoy). El decoder **sigue** emitiendo `****`, y la regla post-hoc `_collapse_repeated_run` lo repara sin tocar logits → **11/11 público y 11/11 privado**. Ver `ESTADO_ACTUAL.md` §7 y §8. |
 | **Orquestación de `src/decoder/`** (índice de args, trie global) | Diseñada y descartada: el pre-índice no reduce forwards. El coste es **compute-bound** (sin KV-cache), uniforme por paso. |
 | **Optimización B′** (batching) | Descartada: agrega complejidad sobre hardware donde la suite ya cumple. |
 | **Nivel 2 del oráculo** | Descartado por el usuario. |

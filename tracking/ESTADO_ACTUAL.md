@@ -2,7 +2,8 @@
 
 > Archivo de estado DINÁMICO — importado con `@` desde `CLAUDE.md`. Se actualiza al inicio/fin de cada sesión. Formato COMPACTO a propósito: **este archivo es para arrancar sesión y decidir, no para historia.** Detalle fino → `docs/design/`, bugs → `docs/tracking/BITACORA_BUGS.md`, y las series históricas de medición están en el **git history** (no se repiten acá).
 
-**Última actualización**: 2026-09-27 noche — los 2 KPIs medidos: **latencia <5' CUMPLIDA (4'52")** · **accuracy real 6/11 (54,5%)**, con el fix ya verificado que la sube a **10/11 (90,9%)**.
+**Última actualización**: 2026-10-04 — **§7 nueva: teoría de las reglas post-hoc (A verificada y commiteada · B y C medidas, NO implementadas)**. **Pendiente de leer y de corroborar en suite.** §1–§6 son el snapshot del 27/09 (HEAD `e415a6c`); el estado medido hoy está en **§7.0**.
+**Snapshot 27/09**: los 2 KPIs medidos — **latencia <5' CUMPLIDA (4'52")** · **accuracy real 6/11 (54,5%)**, con el fix ya verificado que la sube a **10/11 (90,9%)**.
 
 ---
 
@@ -63,7 +64,17 @@ El **top-15 global entero** es de asteriscos e inglés (`aster` 18,24 · `stars`
 
 - 🔑 **REENCUADRE: el modelo es un COPIADOR LITERAL, no un abstractor.** Los **6 tests cuyo argumento está VERBATIM en el prompt pasan los 6** (shrek, john, hello, world, NUMBERS, dog). **El único string que NO está literal en el prompt es P9, y es el único fallo de string.** P9 no es un bug de asteriscos: es el techo del modelo.
 - **Ningún filtrado en el decoder lo arregla** (el candidato está, 13,77 logits abajo). Sólo el prompt lo mueve, y `build_function_list` (`src/prompt/prompt_builder.py:61`) hoy imprime sólo `name (type)`, sin semántica de parámetro.
-- 🔴 **Tunear el prompt hasta que P9 pase es ENVENENADO**: es un test público y el peer review lo ve. **Recomendación: cobrar el 10/11 y documentarlo como limitación conocida con esta medición.**
+- 🔴 **Tunear el prompt hasta que P9 pase es ENVENENADO**: es un test público y el peer review lo ve.
+
+#### ✅ CORRECCIÓN 2026-10-04 — la recomendación de arriba quedó ANULADA
+
+Esta subsection decía *"cobrar el 10/11 y documentarlo como limitación conocida"*. **Era una conclusión sobre una medición mal hecha.** El error: se comparó el output **crudo** del 28-sep (cuando `src/validator/` no existía) contra el output **ya reparado** del smoke de hoy — y se leyó esa diferencia como "el decoder mejoró". La única diferencia entre los dos archivos era que **hoy existe la regla C**. Nada del decoder cambió.
+
+**Verificado en crudo** (llamando a `generate()` directo, sin pasar por el validador): el decoder **sigue emitiendo** `'replacement': '****'`. El techo del modelo es real y sigue donde estaba.
+
+**Lo que cambia es la conclusión**: no hace falta cobrar el 10/11. La regla C (`_collapse_repeated_run`) repara P9 **post-hoc** sin tocar un solo logit → **11/11 público y 11/11 privado**. Ver §7 y §8.
+
+⚠️ **Lección de método, para que no se repita**: nunca aplicar una regla post-hoc sobre un archivo de salida, porque el pipeline escribe el output **ya reparado** → doble aplicación → falso "0 reparaciones". Para ver la salida cruda hay que llamar `generate()` directo o bypasear el validador.
 
 ---
 
@@ -123,24 +134,27 @@ Regla común a las tres: **keyeada en el tipo declarado del schema, NUNCA blanke
 
 ### Bloqueante 2 · P9 (el único fallo restante — NO relaxing, NO hardcodear)
 
+> **✅ RESUELTO 2026-10-04** — por la vía que la tabla de abajo no contemplaba: **reparación post-hoc** (regla C). M14 no queda en 10/11 sino en **11/11**. El diagnóstico de este bloque sigue siendo correcto (el decoder no va a emitir `*` por prompting: está 13,77 logits abajo); lo que estaba mal era la conclusión "cobrar el 10/11".
+
 | Vía | Veredicto |
 |---|---|
 | Filtrar candidatos en el decoder | ❌ **imposible**: `*` está presente, 13,77 logits abajo |
 | Prompt enrichment genérico (descripción por parámetro + ejemplo) | ⚠ legítimo pero **sin garantía** — no puede inventar "asterisks" → `*` |
 | Mentionar asteriscos en el prompt | 🔴 **overfitting a un test público que el peer review ve** — NO |
-| **Documentarlo como limitación conocida con la medición** | ⭐ **Recomendado** |
+| ~~Documentarlo como limitación conocida con la medición~~ | ❌ **anulada** — era conclusión de una medición mal hecha (§1.3) |
+| **Reparación post-hoc `_collapse_repeated_run`** | ⭐ **la que funciona** — 11/11, sin tocar logits ni prompt |
 
-**Si A → 10/11 = 90,9% → M14 CUMPLIDA y P9 deja de bloquear la entrega.**
+**11/11 = 100% en ambos sets. P9 ya no bloquea la entrega.**
 
 ---
 
 ## 5. ✅ Pendientes — PARA RETOMAR (27/09 noche)
 
-1. 🔴 **Implementar la coerción** (A ~5 líneas o C) + los 5 tests + correr `grade_real.py` para confirmar 10/11. **Único bloqueante de M14. Requiere OK del usuario para tocar código.**
+1. ✅ **CERRADO 2026-10-04.** La coerción se implementó como las **3 reglas post-hoc** (A `_snap_to_query_span`, B `_restore_internal_quotes`, C `_collapse_repeated_run`) en `src/validator/output_validator.py`. Resultado real: **11/11 público y 11/11 privado**, no 10/11. Ver §7 y §8.
 2. 🔴 **Commitear el fix del set privado** (§2) — ya verificado en verde. **Sin el 1º de los dos el programa NO ARRANCA con el set privado.**
 3. 🔴 **`git push`** — `main` 1 commit adelante (`e415a6c`).
 4. 🔴 **Decidir compliance IV.3.1** ("All classes must use pydantic"): **6 de 9 clases de `src/` no son Pydantic** (5 dataclasses + `SchemaContext` plana). Sigue ABIERTO y **ningún plan lo trata como riesgo**. Leer `docs/design/ANALISIS_ALINEACION_PLANES_VS_MOULINETTE.md` ENTERO antes de decidir Etapa 2 o 5 del plan v2.
-5. 🟡 **Smoke test del SET PRIVADO end-to-end** — **nunca se midió accuracy contra el set privado, que es la mitad de la evaluación.** Ya hay `private_smoke_input.json` / `private_smoke_output.json` en `/tmp/cmm/`.
+5. ✅ **CERRADO 2026-10-04.** Smoke end-to-end del set privado **y** del público, con generación real: **11/11 y 11/11** (`~/scratch/call_me_maybe_task42/private/run_private_smoke.sh both`). La mitad privada de la evaluación dejó de ser terra ignota.
 6. 🟡 **Registrar el conteo de forwards en el output** — es la unidad de medida de toda §3 y hoy no existe.
 7. 🟡 **Investigar el 2x de CPU-s/forward** (SMT del host vs power/thermal). No bloquea.
 8. 🟡 **Tasks 5.1–5.3 + DoD5 + 6.1–6.5**: `src/validator/` existe pero **no valida que los `parameters` encajen con el schema de la función elegida** (TODO explícito en `validate_output`, L126-131); falta 5.3 (formato de salida) y las de métricas/reports no-LLM.
@@ -182,6 +196,8 @@ Regla común a las tres: **keyeada en el tipo declarado del schema, NUNCA blanke
     ⚠️ **Regla de ingeniería, NO hardcodear ANSI**: gatear con `sys.stdout.isatty()` y respetar `NO_COLOR` (https://no-color.org). Motivo concreto: el output de la corrida se **pega en el chat y se guarda en logs** — los códigos de escape ensucian la evidencia y rompen el diff de métricas. El color sólo cuando hay terminal de verdad; la corrida normal queda limpia.
 
 
+15. 🟡 **Comparar la salida CRUDA a 1 vs 4 hilos** (~40 min). Los 281 márgenes de §8 son **todos de 1 hilo** (`OMP_NUM_THREADS=1`); el smoke que dio 11/11 corrió con **4 hilos** porque el script no pinea la variable. El orden de reducción en float depende del número de hilos → **nunca se comparó crudo contra crudo**. Lo único que hay es evidencia *débil*: el smoke de 4 hilos también dio 11/11. Para cerrarlo: la misma corrida con `generate()` directo, sin validador, en ambas configuraciones, y diff de los 22 outputs.
+
 ---
 
 ## 6. Protocolo de actualización
@@ -190,3 +206,182 @@ Regla común a las tres: **keyeada en el tipo declarado del schema, NUNCA blanke
 - **CIERRE**: reflejar HEAD, tests, mediciones. **Estado desactualizado = peor que ninguno.**
 - **Regla de higiene**: este archivo se **recorta**. Si un dato es histórico y ya no cambió una decisión, va al **git history** o a `docs/design/`, no acá. Series de medición viejas, benchmarks superados y notas de diseño ya digeridas **no se reproducen** — se acotan a la conclusión vigente.
 - **Nunca medir latencia con el agente vivo** (§1.1) — contamina por 2,6x.
+
+---
+
+## 7. 🧪 LAS 3 REGLAS POST-HOC · implementadas y corroboradas
+
+> **Estado de esta sección**: escrita el 2026-10-04, **corroborada el mismo día**. La regla **A** ya estaba commiteada; **B y C quedaron implementadas con OK del usuario** (`3087fc5`). Todo lo de §7.1–§7.8 está **corroborado sobre una generación real completa**: el smoke end-to-end de público y privado dio **11/11 y 11/11**. La corroboración que §7.9 pedía está hecha — el detalle está en §7.9.
+
+### 7.0 Estado medido (2026-10-04, post-corrobación)
+
+- **HEAD `3087fc5`** — `main` **2 commits adelante de `origin/main`, SIN PUSH** (`bd07ad1` + `3087fc5`).
+- **267 tests GREEN** (era 247) · flake8 0 · mypy 23 archivos.
+- **Smoke end-to-end, generación real: 11/11 público (100%) y 11/11 privado (100%)**. Wall clock 1808 s / 1423 s, inflado ×2,6 por agente vivo (§1.1).
+- 🔑 **Las reglas NO son facultativas en la práctica**: desactivando *sólo* la entrada rota verificada — una por set — el score cae a **10/11 (90,9%)** en ambos.
+- 🔑 **CÓMO GRADEA LA CÁTEDRA — verificado** (`moulinette/__main__.py:161`): `if student_output != correction["expected_output"]` → **compara el OUTPUT de llamar a la función, NO los argumentos**. Corolario: los args solo importan **funcionalmente**. Esto es lo que abre P9 (ver §7.4).
+
+### 7.1 El principio — lo nuevo de esta sección
+
+- 🔑 **Una regla automática es legítima solo si se puede escribir SIN haber visto la respuesta.** Es el criterio para separar "arreglar" de "hacer trampa".
+- 🔑 **Anclar a una FIRMA ESTRUCTURAL es legítimo; anclar a un VOCABULARIO es hardcodeo.** `corrida de ≥2 chars idénticos` (agnóstico: sirve para `****`, `#####`, `-----`) = legítimo. `asterisks → *` (exige diccionario) = tabla de búsqueda = **prohibido por el subject**.
+- **Tres mecanismos distintos, no los mismo:**
+  1. **Máscara de esquema** (durante la escritura) — de `functions_definition.json`: JSON válido, nombres de parámetro exactos, tipos. Ya existe.
+  2. **Máscara derivada de la query** (durante la escritura) — "el valor no puede desviarse del texto". **DESCARTADA, medida** (§7.5).
+  3. **Reparación post-hoc** (después de escribir) — **A, B y C viven acá**. No se toca un solo logit.
+- 🔑 **Reparar exige que la verdad esté en la entrada.** Si el valor correcto no aparece en la frase del usuario, no hay a qué reparar. **P9 se creyó "imposible" por esto — y el error fue mío**: solo miré **una** fuente de información (la query). La regla C usa **dos** (query + convención del dominio), y esa segunda es la que la legitima.
+
+### 7.2 Las tres reglas
+
+| | Regla | Distorsión que deshace | Mecanismo | Estado |
+|---|---|---|---|---|
+| **A** | Si el valor string aparece verbatim en la query y el char izquierdo es **puntuación** → estirar hasta el borde | copia **truncada** (`home/user/...` ← `/home/user/...`) | post-hoc, `_snap_to_query_span` | ✅ **`bd07ad1`** · +7 tests |
+| **B** | Si el valor NO es verbatim, pero aparece al quitar las comillas dobles de la query → **restaurar** las comillas **internas** (nunca las que abrazan todo) | copia **sin comillas** (`Say hello…` ← `Say "hello"…`) | post-hoc, `_restore_internal_quotes` | 🟡 **medida, NO implementada** |
+| **C** | Si el valor es **enteramente** una corrida de ≥2 chars idénticos y **no** aparece literal en la query → el modelo **contó** en vez de **parametrizar** → deshacer el conteo (§7.6) | copia **contada** (`****` ← `*`) | post-hoc, colapsar la corrida | 🟡 **medida, NO implementada** |
+
+### 7.3 Las mediciones que sostienen todo (probes en scratch, sin modelo)
+
+| Regla | Dispara sobre | Falsos positivos |
+|---|---|---|
+| **A** | 22 outputs: **0** en público, **1** en privado (test 8) | 0 |
+| **B** | 22 outputs: **1** (test 11), **0** en público | 0 |
+| **C** | **38** valores string: **1** | 0 |
+
+### 7.4 C — el hallazgo, y por qué el regex NO hacía falta
+
+Propuesta del usuario. Regla: si el `replacement` es una corrida de chars idénticos y la frase **no la muestra**, el modelo no está describiendo el dato sino **contando las coincidencias** — y en cualquier API de sustitución (`re.sub`, `sed`, `replace` de JS) el `replacement` es una **plantilla aplicada a todas las coincidencias**, no una copia por coincidencia.
+
+🔑 **El hallazgo que abre P9**: con el `replacement` colapsado, el output **coincide**:
+
+```
+nuestro  regex ([aeiouAEIOU]) + replacement *  ->  'Pr*gr*mm*ng *s f*n'
+esperado regex [aeiouAEIOU]  + replacement *  ->  'Pr*gr*mm*ng *s f*n'
+```
+
+El grupo de captura **no cambia *qué* se matchea**, y como el grader compara el **output** (§7.0), **el regex no hace falta tocarlo**. Una sola pieza mueve el test.
+
+**Resultado end-to-end con el código de la cátedra:**
+
+| Suite | Antes | Con C |
+|---|---|---|
+| **Pública** | 10/11 (90,9%) | **11/11 (100%)** |
+| **Privada** | 9/11 (81,8%) | **10/11 (90,9%)** |
+
+⚠ **Con C desaparece el riesgo del "margel de 1 test"** del público (estaba al borde: 10/11 pasa, 9/11 reprueba).
+
+### 7.5 DESCARTADAS POR MEDICIÓN — no reintentar
+
+| Descartada | Por qué murió |
+|---|---|
+| **Máscara decoder-level "unique-anchored"** (y su variante "refinada") | Insegura en outputs **correctos**: `SELECT`→ forzaría `SQL query 'SELECT…'` · `/home`→`/home/user/data.json with utf-8 encoding` · `utf`→`utf-8 encoding`. **Raíz: el decoder no sabe dónde termina el value** — el span de la query incluye el texto de cola, así que "forzar hacia el span" siempre sobre-extiende. La "refinada" también muere porque **`/` y `-` son puntuación** y disparan falsos positivos DENTRO del value. |
+| **C-bloque** (unidad >1 char, `ababab`→`ab`) | **Rota**: sobre P9 devuelve `**` en vez de `*` → el público bajaría a 10/11. |
+| **Quitar el grupo de captura** si el `replacement` no tiene backreference | Da exactamente `[aeiouAEIOU]` (la respuesta de la cátedra) pero **ganancia medible = CERO** (los 3 tests ya pasan por output). Mismo costo, riesgo extra. |
+
+### 7.6 C tiene un agujero — por eso va "refinada"
+
+La versión cruda (colapsar siempre a 1) **falla medida**:
+
+| query | valor | cruda | **refinada** |
+|---|---|---|---|
+| `…with ***` | `*****` | `*` ❌ | **`***`** ✅ |
+| `Set padding to ===` | `=====` | `=` ❌ | **`===`** ✅ |
+| `…with asterisks` (P9) | `*****` | `*` ✅ | `*` ✅ |
+| `…with **` | `**` (verbatim) | `**` ✅ | `**` ✅ |
+
+**La versión refinada**: si la corrida no está en la query, **buscar en la query la corrida más larga que SÍ aparece** y usar esa; si la query no muestra ninguna, usar **un** carácter. Misma norma de "respetar lo que la frase dice", aplicada a la cantidad.
+
+⚠ **Riesgo residual**: si la frase contiene `**` por casualidad (markdown) y el modelo cuenta `****`, colapsaría a `**`. Probabilidad baja; se documenta, no se previene.
+
+### 7.7 B es conservadora — demo de ambigüedad (medida)
+
+| query | valor | B | por qué |
+|---|---|---|---|
+| `Format template: Say "hello" to {name}` | `Say hello to {name}` | → `Say "hello" to {name}` | el caso real |
+| `Format template: Say "hi" to {user}` | `Say hi to {user}` | → `Say "hi" to {user}` | el espejo |
+| `Replace all numbers in "Hello 34 I'm 233…" with NUMBERS` | `Hello 34 I'm 233…` | **silencio** | las comillas **abrazan** todo: son delimitadores, no contenido |
+| `Say "hello" and hello` | `hello` | **silencio** | ya es literal |
+| `Echo "abc" and abc to stdout` | `abc` | **silencio** | dos spans coinciden |
+| `Format: "x" and "x"` | `x` | **silencio** | solo spans delimitados |
+| `Format template: Use "a" or "b" for {x}` | `a` | **silencio** | ambigüedad real |
+
+🔑 **Ante duda o más de una opción, B se queda callada.** Eso es el comportamiento buscado.
+
+### 7.8 La teoría unificadora
+
+> **El modelo es un COPIADOR, y mete distorsiones mientras copia. Cada regla deshace una distorsión concreta.**
+
+Trunco (**A**) · dropeo de comillas internas (**B**) · conteo de repeticiones (**C**). Las tres son post-hoc, narrow, con firma estructural y 0 falsos positivos sobre lo medido. No son tres trola sueltas: son **una familia con una sola norma** — *el valor tiene que estar respaldado por la frase del usuario; si no, es una invención nuestra y se normaliza*.
+
+### 7.9 ✅ RESUELTO — la corroboración se hizo
+
+1. ✅ **B y C implementadas** en `src/validator/output_validator.py` (misma familia que A), encadenadas con A en `_repair_string_value`. Commit `3087fc5`.
+2. ✅ **Smoke end-to-end corrido** (público **y** privado, generación real, `run_private_smoke.sh both`): **11/11 y 11/11**. La corroboración que esta subsection pedía está hecha.
+3. ✅ **`PENDIENTES_ENTREGA.md:151` corregido** — P9 ya no figuraba como "límite del modelo, el KPI se cumple con 10/11". Vive en el submódulo `docs` → commit aparte + bump del puntero.
+4. ✅ **Tests agregados**: 247 → **267**. Ver §7.9-bis.
+5. 🟡 **Push pendiente** — `main` 2 commits adelante (`bd07ad1`, `3087fc5`). Sin pedido explícito no se pushea.
+
+#### 7.9-bis Plan de tests — ejecutado
+
+**C — deben disparar:** `****` + frase sin corridas → `*` · `*****` + frase con `***` → `***` · `=====` + frase con `===` → `===`
+**C — NO deben disparar:** `NUMBERS` (no es corrida) · `dog` · `*` sola (largo < 2) · `**` presente literal en la frase · parámetro no-string · frase vacía
+**B — deben disparar:** el caso real (test 11) · el espejo `Say "hi" to {user}`
+**B — NO deben disparar:** valor ya literal · comillas que abrazan todo (test público de `substitute`) · dos spans que coinciden · solo spans delimitados · parámetro no-string
+**Suite completa:** los 247 tests existentes + estos, y `flake8`/`mypy` limpios (recordar: `max-line-length = 120`, **E203 no ignorado** → slices sin espacio antes de `:`).
+
+**Resultó en 20 tests nuevos** (`tests/test_output_validator.py`), agrupados por regla: 8 de B · 8 de C · 4 de la cadena A→B→C. Dos de ellos cubren **el orden de la cadena** y **los no-string**, que el plan original no listaba.
+
+⚠️ **Un test hubo que re-apuntar, no borrar.** `test_snap_leaves_value_absent_from_prompt` afirmaba que `****` quedaba `****` — a través de `build_function_call`. Con la regla C eso ya no es cierto a través del pipeline, así que ahora **prueba la regla A directo** (`_snap_to_query_span("****", prompt)`). Sigue documentando lo que quería documentar ("A sola no hace nada") sin depender del pipeline.
+
+---
+
+## 8. 📐 MAPA DE MARGENES — dónde está el riesgo numérico real (2026-10-04)
+
+### 8.1 La pregunta
+
+El usuario tiene el presentimiento de que **los bugs del modelo desaparecen en máquinas ajenas**. `CLAUDE.md:51` lo respalda: *float16 (10 bits de mantisa) puede invertir empates técnicos de logit*, y el test de humo en GPU está pendiente. Nadie lo había cuantificado. Esta sección lo cuantifica.
+
+### 8.2 Dónde está la decisión (importante para instrumentar)
+
+El argmax **real** está en `token_filter.py:179`, dentro de la rama M1:
+
+```python
+best_id = max(range(len(logits)), key=lambda i: logits[i])   # ~151K posiciones
+```
+
+O sea: **argmax global sobre todo el vocabulario**, sin estrechar. Si ese token winner es estructuralmente válido, M1 devuelve `{best_id}` y el modelo decidió.
+
+⚠️ **Trampa de instrumentación (costó una corrida entera de 40 min)**: espiar `_pick_best_token` (`constrained_generator.py:671`) **no sirve** — ahí ya llega `allowed` estrechado a 1 por M1, así que se mide al superviviente contra nada y sale "0 decisiones, sin margen". Hay que patchear **`compute_allowed_ids`** en el namespace del consumidor (`constrained_generator` lo importa por nombre).
+
+### 8.3 La medición
+
+281 steps con decisión real de modelo, sobre los 22 prompts (11 públicos + 11 privados):
+
+| zona | steps |
+|---|---|
+| margen < 0,05 → **peligro float16** | **0** |
+| margen < 0,10 (zona gris) | 0 |
+| margen < 0,20 (ajustado) | 1 |
+| margen < 0,50 (moderado) | 2 |
+| margen ≥ 1,00 (cómodo) | **277** |
+
+**Mínimo 0,193 · mediana 8,745 · máximo 18,29.** float16 sobre un logit de magnitud ~20-30 da un error absoluto de ~0,01-0,015: **no hay ninguna decisión a menos de 0,05**. Haría falta ~13x más ruido del que float16 entrega para mover lo más ajustado.
+
+### 8.4 El hallazgo — y por qué encaja con §7
+
+**El step más ajustado del proyecto entero es exactamente P9:**
+
+```
+0.19323  [public 9 step 19]  '****'  vs  ' *'   rama=M1
+```
+
+El modelo **genuinamente quiere** emitir `****` — no es un artefacto del filtro — y gana por apenas 0,193 logits sobre `' *'` (con espacio inicial). Eso explica por qué P9 era el test que fallaba: es la decisión **30x más ajustada** que el resto, donde lo típico es 5-8.
+
+🔑 **El punto que importa**: la única decisión numéricamente frágil del proyecto **coincide con la única que ya tiene una regla de reparación**. El riesgo residual no es "un flip rompe un test que hoy pasa" — eso está cubierto por C. La regla quedó clavada justo donde el modelo está a punto de decidir mal.
+
+### 8.5 Lo que esta medición NO cubre
+
+- **La variable que más importa sigue sin testear: GPU / float16.** El 0,193 es un argumento analítico, no una ejecución.
+- Batch > 1 · otra versión de torch · cuantización · kernel de atención distinto.
+- **El margen top1-vs-top2 es una cota SUPERIOR del riesgo**: un flip sólo daña si el runner-up además es estructuralmente válido y produce respuesta incorrecta. El riesgo real es menor que lo medido.
+- **Todos los márgenes son de 1 hilo.** El cruce crudo 1 vs 4 hilos es el pendiente §5.15.
+- Instrumento: `/tmp/opencode/margins2.py` → `/tmp/opencode/margins2.json` (⚠ se pierden al reiniciar; §5.11).
