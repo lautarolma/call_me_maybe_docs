@@ -385,3 +385,62 @@ El modelo **genuinamente quiere** emitir `****` — no es un artefacto del filtr
 - **El margen top1-vs-top2 es una cota SUPERIOR del riesgo**: un flip sólo daña si el runner-up además es estructuralmente válido y produce respuesta incorrecta. El riesgo real es menor que lo medido.
 - **Todos los márgenes son de 1 hilo.** El cruce crudo 1 vs 4 hilos es el pendiente §5.15.
 - Instrumento: `/tmp/opencode/margins2.py` → `/tmp/opencode/margins2.json` (⚠ se pierden al reiniciar; §5.11).
+
+---
+
+## 8.6 ¿A+B+C costaron latencia? — medido: 0,4 ms
+
+Las tres reglas se agregaron **después** de medir el KPI de latencia (4'52",
+`§3`), así que la pregunta era abierta. Se midió.
+
+### Por qué el costo de generación es idéntico POR CONSTRUCCIÓN
+
+`3087fc5` tocó **únicamente** `src/validator/output_validator.py` y
+`tests/test_output_validator.py` — **ningún archivo del decoder**. Las reglas son
+post-hoc: se corren una vez por valor string, **después** de generar. No agregan
+forwards ni alteran los logits, así que el tiempo de generación no cambió.
+
+### Lo que sí se midió: el validador
+
+2000 repeticiones por caso, unidad = suite completa de 11 casos:
+
+| entrada | mediana | p95 |
+|---|---|---|
+| **CRUDO 28-sep — las reglas DISPARAN (peor caso)** | **448,16 us** | 631,65 us |
+| público ya reparado (no-op) | 434,70 us | 563,50 us |
+| privado ya reparado (no-op) | 381,95 us | 536,97 us |
+
+Y la regla sola, sobre el valor que realmente repara:
+
+| | mediana |
+|---|---|
+| P9 que dispara C (`****`) | 28,080 us |
+| no-op (`dog`) | 26,475 us |
+
+⚠ **Dato fino**: que el caso que *dispara* (28,08 us) cueste apenas 1,6 us más
+que el no-op (26,48 us) dice que **el costo no está en la reparación sino en
+buscar el valor en el prompt**. Reparar es lo barato; el `find` del span es lo
+caro. Si alguna vez hay que optimizar, el objetivo es la búsqueda, no la regla.
+
+### Contraste con el presupuesto
+
+```
+KPI latencia (27/09):   4'52" = 292 s      límite 5'00" = 300 s   margen 8 s
+Costo peor caso A+B+C:      0,000448 s por suite de 11 casos
+Fracción del presupuesto:  0,000153 %
+```
+
+**A+B+C se comen 0,4 ms de los 8 s de margen disponibles.** El KPI de latencia
+no se mueve.
+
+### Lo que falta — y por qué no se midió acá
+
+🔴 **El KPI end-to-end NO fue re-verificado después de B+C.** No por las reglas
+(que son gratis), sino por `§1.1`: *"nunca medir latencia con el agente vivo"*
+— el agente activo la contamina por **2,6x**. Con el agente corriendo, cualquier
+cifra de end-to-end es basura.
+
+Para cerrarlo hace falta una sesión **sin agente**, igual que para `make run`:
+corrida única de la suite, sin procesos competidores, y recién ahí comparar
+contra los 4'52" de referencia. Instrumento: `/tmp/opencode/bench_validator_latency.py`
+(mide el validador) — para el end-to-end falta el que ya usa `§3`.
