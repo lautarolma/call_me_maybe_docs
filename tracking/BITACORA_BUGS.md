@@ -575,4 +575,86 @@ perder el fast path que lo justifica: es una decisión de diseño, no un bug.
 
 ---
 
+## BUG-015: nada pinnea el número de hilos — la reproducibilidad depende del ambiente
+
+- **Estado**: ⚠️ **ABIERTO** — riesgo de reproducibilidad, **no** bug de correctitud hoy
+- **Fecha de detección**: 2026-10-04 (al medir el mapa de márgenes, §8 de `ESTADO_ACTUAL.md`)
+- **Severidad**: BAJA (no observada en ninguna corrida; ver Medicación)
+- **Archivos afectados**: ninguno — es una **ausencia**. El lugar natural del fix sería
+  - `src/cli.py` o el entrypoint, fijando `OMP_NUM_THREADS` y `torch.set_num_threads()`
+  - `llm_sdk/llm_sdk/__init__.py` (donde ya se elige el dtype por dispositivo)
+
+### Síntoma
+
+`src/` nunca fija el número de hilos de cómputo. Lo decide el ambiente: si alguien
+exporta `OMP_NUM_THREADS=1` corre con 1, si no corre con los 4 que ve. La misma
+frase, en dos máquinas distintas, puede elegir palabras distintas.
+
+Esto ya se notó como **inconsistencia de harnesses** antes de ser un bug: el rig
+canónico exporta `OMP_NUM_THREADS=1`, mientras que `run_private_smoke.sh` **no**
+lo exporta y corre con 4. Los dos dieron 11/11 — pero **nunca se comparó salida
+CRUDA a 1 vs 4 hilos** (queda en `ESTADO_ACTUAL.md` §5.15).
+
+### Análisis de causa raíz
+
+PyTorch reparte una misma suma larga entre varios hilos. Cuatro trabajadores
+haciendo parciales y combinándolos **suman en otro orden** que uno solo. En punto
+flotante la suma no es asociativa: el último dígito puede diferir.
+
+Dentro del modelo eso se propaga: cada logit sale de millones de sumas, así que
+el error relativo del tensor se parece al de sus entradas (~1e-7). Cuando dos
+opciones están casi empatadas, **ese dígito vota**. No es "otro dado": es el
+mismo ordenamiento con una diferencia de sub-ulp.
+
+### Por qué NO se disparó — y por qué NO es menor
+
+El mapa de márgenes de §8 (**281 steps con decisión real de modelo**, 22 prompts)
+da:
+
+| | valor |
+|---|---|
+| steps por debajo de 0,05 | **0** |
+| mínimo | 0,19323 |
+| mediana | 8,74501 |
+| máximo | 18,29302 |
+
+float16 (eps 9,77e-4) sobre un logit de magnitud ~20-30 produce un error
+absoluto de ~**0,01-0,015**. Para mover la decisión más ajustada del proyecto
+haría falta **~13x más ruido del que float16 entrega**. Por eso hoy la
+probabilidad de que los hilos muevan una respuesta es baja.
+
+Y hay un detalle que lo deja casi cerrado por construcción: **el step más
+ajustado del proyecto entero es P9** (`[public 9 step 19]`, `'****'` vs `' *'`,
+margen 0,19323), que ya tiene la regla C como red. La única decisión numéricamente
+frágil coincide con la única reparada.
+
+O sea: **baja probabilidad no es cero**. El día que aparezca un margen de 0,01,
+esto pasa de "irrelevante" a "rompe la evaluación" sin ningún aviso.
+
+### Medición — qué falta
+
+- 🔴 **Comparación cruda 1 vs 4 hilos**: nunca se hizo. Los 281 márgenes son todos de 1 hilo.
+- 🔴 **float16 en GPU**: nunca se ejecutó. El 0,193 es un argumento **analítico**, no una medición.
+- 🔴 **Batch > 1, otra versión de torch, cuantización, kernel de atención distinto**: sin cubrir.
+
+El margen top1-vs-top2 es una cota **superior** del riesgo: un flip sólo daña si
+el runner-up además es estructuralmente válido y produce respuesta incorrecta.
+
+### Lecciones aprendidas
+
+1. **Una decisión que no está escrita en el código es una decisión que no
+   controlás.** El harness y el rig discrepaban en hilos sin que nadie lo notara:
+   ambos "pasaban", entonces nadie preguntó por qué.
+2. **Un margen grande medido es una defensa real, pero es del modelo, no del
+   código.** Sirvió para priorizar: acá es "bajo", no "resuelto". Confundir
+   esas dos cosas es exactamente el error que se corrigió en §1.3.
+3. El mismo patrón de BUG-014, en espejo: ahí el fix estaba **correcto pero
+   inactivo**; acá el riesgo está **activo pero inerte**. En los dos casos lo que
+   faltaba no era una medición de score sino una medición del mecanismo.
+4. **La instrumentación tiene que ir donde ocurre la decisión.** Instrumentar
+   `_pick_best_token` fue inútil: ahí ya llega `allowed` estrechado a 1, así que
+   se mide al superviviente contra nada. El argmax real está en
+   `token_filter.py:179`. Media hora de instrumentación mal ubicada se paga
+   cara.
+
 <!-- Próximos bugs se agregan acá abajo con el mismo formato -->
