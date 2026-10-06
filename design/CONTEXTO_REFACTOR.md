@@ -1,6 +1,6 @@
 # CONTEXTO_REFACTOR — call_me_maybe (42 School)
 
-> **Archivo de referencia ON-DEMAND**: NO se carga automáticamente. Lo importa el `CLAUDE.md` del proyecto y la tarea de refactor de latencia (la instrucción inicial del CLAUDE.md dice leerlo ANTES de tocar código). Fuente de verdad de la spec: `docs/design/PLAN_IMPLEMENTACION.md`. Subject transcrito en §7 — no hace falta decodificar el PDF.
+> **Archivo de referencia ON-DEMAND**: NO se carga automáticamente. Se lee antes de tocar código de decoder/strings (protocolo de sesión). Fuente de verdad de la spec: `docs/design/PLAN_IMPLEMENTACION.md`. Subject transcrito en §7 — no hace falta decodificar el PDF.
 
 ---
 

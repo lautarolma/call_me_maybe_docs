@@ -1,24 +1,24 @@
 # ESTADO_ACTUAL — call_me_maybe (42 School)
 
-> Archivo de estado DINÁMICO — importado con `@` desde `CLAUDE.md`. Se actualiza al inicio/fin de cada sesión. Formato COMPACTO a propósito: **este archivo es para arrancar sesión y decidir, no para historia.** Detalle fino → `docs/design/`, bugs → `docs/tracking/BITACORA_BUGS.md`, y las series históricas de medición están en el **git history** (no se repiten acá).
+> Archivo de estado DINÁMICO — fuente de verdad de la sesión, se lee al inicio y al fin de cada sesión. Formato COMPACTO a propósito: **este archivo es para arrancar sesión y decidir, no para historia.** Detalle fino → `docs/design/`, bugs → `docs/tracking/BITACORA_BUGS.md`, hardware → `docs/notes/HARDWARE_VM.md`, y las series históricas de medición están en el **git history** (no se repiten acá).
 
-**Última actualización**: 2026-10-04 — **§7 nueva: teoría de las reglas post-hoc (A verificada y commiteada · B y C medidas, NO implementadas)**. **Pendiente de leer y de corroborar en suite.** §1–§6 son el snapshot del 27/09 (HEAD `e415a6c`); el estado medido hoy está en **§7.0**.
-**Snapshot 27/09**: los 2 KPIs medidos — **latencia <5' CUMPLIDA (4'52")** · **accuracy real 6/11 (54,5%)**, con el fix ya verificado que la sube a **10/11 (90,9%)**.
+**Última actualización**: 2026-10-06 — **re-baseline post-smoke**. HEAD `2a1768b` · 272 tests · smoke E2E 05/10: **11/11 público + 11/11 privado** · `CLAUDE.md` eliminado · `docs/` fuera del repo principal · Pydantic cerrado como decisión de diseño · latencia local → campus. Estrategia vigente → `PRE_ENTREGA.md`.
+**Snapshot 05/10**: KPIs — **accuracy 11/11 (100%) en ambos sets** · latencia local ~325s (fuera de KPI de 300s, se valida en campus) · lint 0 · 272 tests GREEN.
 
 ---
 
 ## 🔴 1. ESTADO DEL DÍA — leer esto primero
 
-| Criterio del subject | Bar | Medido | Estado |
+| Criterio del subject | Bar | Medido (05/10) | Estado |
 |---|---|---|---|
-| Suite de 11 prompts | < 5 min | **4'52,72"** | ✅ CUMPLE (4,7% de margen) |
-| Accuracy full (M14) | ≥ 90% | **6/11 = 54,5%** | 🔴 FALLA · con el fix **10/11** ✅ |
-| Accuracy fn (nombre) | — | 11/11 (100%) | ✅ |
-| Entregable | archivo existe | ✅ 11 entries en `data/output/function_calling_results.json` | ✅ |
-| lint (`make lint`) | == moulinette | flake8 0 · mypy 23 files | ✅ |
-| tests | verde | **206 passed** | ✅ |
-
-**El único bloqueante de la bar M14 es la coerción `int`→`float`** (§4). Está verificada end-to-end, son ~5 líneas, y **falta tu OK para tocar código**.
+| Suite de 11 prompts | < 5 min | local **~325s (5'25")** · campus: por medir | ⚠️ local fuera de KPI — decisión: se valida en campus |
+| Accuracy público (M14) | ≥ 90% | **11/11 = 100%** | ✅ |
+| Accuracy privado | ≥ 90% | **11/11 = 100%** | ✅ |
+| Accuracy fn (nombre) | — | 11/11 (100%) ambos sets | ✅ |
+| Entregable | archivo existe | ✅ 11 entries en `function_calling_results.json` | ✅ |
+| lint (`make lint`) | == moulinette | flake8 0 · mypy 23 archivos | ✅ |
+| tests | verde | **272 passed** | ✅ |
+| pydantic en clases | IV.3.1 | **decisión de diseño documentada** (frontera I/O) | ✅ — ver `PRE_ENTREGA.md` §2 |
 
 ### 1.1 Latencia — la carrera de hardware se CERRÓ
 
@@ -80,21 +80,22 @@ Esta subsection decía *"cobrar el 10/11 y documentarlo como limitación conocid
 
 ## 2. HEAD · tests · working tree
 
-- **HEAD**: `e415a6c` — **`main` está 1 commit AHEAD de `origin/main`, SIN PUSH**.
-- 🔴 **Working tree SIN commitear, listo para commit con OK — fix del SET PRIVADO (4 archivos, +211/-6)**:
-
-  | Archivo | Qué hace | Qué pasa si NO está |
-  |---|---|---|
-  | `src/models/function_definition.py` | `ParameterType` acepta `"integer"` | 🔴 **El programa NO ARRANCA con el set privado**: `ValidationError: literal_error, input_value='integer'`. **0 en la mitad de la evaluación.** (verificado) |
-  | `src.decoder/schema_validator.py` | `_declared_type_accepts()` — compatibilidad en vez de igualdad | 🟡 Cada prompt con un parámetro declarado `integer` da **output truncado** (`allowed` vacío → `break` en `constrained_generator.py:442`) → `build_results` emite el placeholder `__unparseable__` → **ese test en 0, los otros 10 bien**. (leído del código, no medido) |
-
-  **Son dos cambios encadenados, no dos bugs.** Y son **complementarios de la coerción float/int, no alternativos**: el `"integer"` es para que el decoder NO rechace el valor; la coerción es para que el TIPO de Python que salga sea el que la moulinette asserta. `fn_calculate_compound_interest` necesita los dos en la misma función.
-  **La regla que implementa el 2º cambia exactamente 1 celda de 20** de la matriz kind×declared: `(number, integer)` False→True. Todo lo demás idéntico (verificado).
-
-- **Suite: 206 tests GREEN** · **flake8 0** · **mypy 23 archivos** ✅
-- Commits clave: `d6592d0` Opt2 (header estático) · `794a470` BUG-011 · `0c59092` oráculo Nivel 1 (BUG-013) · `e415a6c` entregable + 3 bloqueantes de peer review.
-- **Stash**: `stash@{0}` refactor-metrics descartado · `stash@{1}` anexo-reverted. **NO tocar.**
-- `data/output/` es **git-ignored** (destino de métricas y del entregable, no se versiona).
+- **HEAD**: `2a1768b` — `main` está **1 commit AHEAD de `origin/main`, SIN PUSH**.
+- **Working tree SIN commitear** — fix del eco de stdout (`echo_view`), verificado
+  en verde: `src/models/output.py` · `src/pipeline.py` · `tests/test_models.py`
+  (+82/−3). **Listo para commit con OK** (aprobado en plan de 06/10).
+- **Frontera del repo (06/10)**: `docs/` → directorio local standalone (fuera
+  del track, gitignored). `.gitmodules` borrado. `CLAUDE.md` eliminado del
+  disco (contenido migrado a `docs/notes/HARDWARE_VM.md` + `PRE_ENTREGA.md`).
+  Repo principal = entrega pura.
+- **Suite: 272 tests GREEN** · **flake8 0** · **mypy 23 archivos** ✅
+- Commits clave: `3087fc5` reglas B+C · `bd07ad1` regla A · `e415a6c` entregable
+  + bloqueantes peer review · `aed4c14` coerción integer/float · `779484a` README.
+- **Stash**: `stash@{0}` refactor-metrics descartado · `stash@{1}` anexo-reverted.
+  **NO tocar.**
+- `data/output/` es **git-ignored** (destino de métricas y del entregable).
+- **Smoke E2E 05/10**: `data/output/private_smoke/` — 11/11 + 11/11 con
+  corretero real; `cpu_window_*.json` con métricas de CPU por set.
 
 ---
 
@@ -116,9 +117,14 @@ Esta subsection decía *"cobrar el 10/11 y documentarlo como limitación conocid
 
 ---
 
-## 4. 🔀 VÍAS DE SOLUCIÓN — decidir (bloqueante de la entrega)
+## 4. 🔀 VÍAS DE SOLUCIÓN — ✅ AMBOS BLOQUEANTES CERRADOS (historial de decisión)
 
-### Bloqueante 1 · coerción `int`→`float` (6/11 → 10/11 = 90,9%, cumple M14)
+> **Estado 06/10**: Bloqueante 1 (coerción) resuelto por las 3 reglas
+> post-hoc (§7) → 11/11 + 11/11. Bloqueante 2 (P9) resuelto por la regla C
+> (§4.2). Se conserva la tabla de vías como material de defensa: documenta
+> POR QUÉ se eligió cada camino.
+
+### Bloqueante 1 · coerción `int`→`float` (RESUELTO — vía A + reglas post-hoc)
 
 Regla común a las tres: **keyeada en el tipo declarado del schema, NUNCA blanket**. Si `param.type == "number"` y el valor parseado es `int` → `float(valor)`. Si es `"integer"` → se deja el `int`.
 
@@ -148,57 +154,46 @@ Regla común a las tres: **keyeada en el tipo declarado del schema, NUNCA blanke
 
 ---
 
-## 5. ✅ Pendientes — PARA RETOMAR (27/09 noche)
+## 5. ✅ Pendientes — re-baselined 06/10
 
-1. ✅ **CERRADO 2026-10-04.** La coerción se implementó como las **3 reglas post-hoc** (A `_snap_to_query_span`, B `_restore_internal_quotes`, C `_collapse_repeated_run`) en `src/validator/output_validator.py`. Resultado real: **11/11 público y 11/11 privado**, no 10/11. Ver §7 y §8.
-2. 🔴 **Commitear el fix del set privado** (§2) — ya verificado en verde. **Sin el 1º de los dos el programa NO ARRANCA con el set privado.**
-3. 🔴 **`git push`** — `main` 1 commit adelante (`e415a6c`).
-4. 🔴 **Decidir compliance IV.3.1** ("All classes must use pydantic"): **6 de 9 clases de `src/` no son Pydantic** (5 dataclasses + `SchemaContext` plana). Sigue ABIERTO y **ningún plan lo trata como riesgo**. Leer `docs/design/ANALISIS_ALINEACION_PLANES_VS_MOULINETTE.md` ENTERO antes de decidir Etapa 2 o 5 del plan v2.
-5. ✅ **CERRADO 2026-10-04.** Smoke end-to-end del set privado **y** del público, con generación real: **11/11 y 11/11** (`~/scratch/call_me_maybe_task42/private/run_private_smoke.sh both`). La mitad privada de la evaluación dejó de ser terra ignota.
-6. 🟡 **Registrar el conteo de forwards en el output** — es la unidad de medida de toda §3 y hoy no existe.
-7. 🟡 **Investigar el 2x de CPU-s/forward** (SMT del host vs power/thermal). No bloquea.
-8. 🟡 **Tasks 5.1–5.3 + DoD5 + 6.1–6.5**: `src/validator/` existe pero **no valida que los `parameters` encajen con el schema de la función elegida** (TODO explícito en `validate_output`, L126-131); falta 5.3 (formato de salida) y las de métricas/reports no-LLM.
-9. 🟡 **B′ (autocompletar `fn_name` por trie)** y **Nivel 2 del oráculo** — la única vía de latencia que queda.
-10. 🟡 **Test de humo en un equipo con GPU** (golden de CPU diffeado).
-11. ⚪ **Backups de probes en `/tmp/` (se pierden al reiniciar)**: `grade_real.py` (**el corretero real sin `fire` — recrear primero**), `probe_ceiling.py` (curva de saturación), `probe_p9.py` (los logits), `probe_integer_fix.py` (la matriz 20 celdas). Los logs que hay que preservar están en `/tmp/cmm/`: `suite_run.txt`, `grade_after.txt`, `answer_6of11_original.json` (6/11), **`answer_float.json` (el 10/11 verificado)**, `functions_definition_private.json`.
-12. ⚪ **Scratch fuera del repo** (correr siempre con `cwd = repo`): `~/scratch/call_me_maybe_task42/` — `task43_accuracy.py` (⚠ **ya no es oráculo de accuracy**), `bench_p8_vs_p2.py`, `vocab_study.py`. Borrar `~/scratch/PENDING_DELETE__call_me_maybe_backup_mario_validation/` cuando se descarte.
-13. ⚪ **Migrar el `moulinette/` del repo fuera de la entrega** (es dependencia de la cátedra, no código nuestro) y **bump del puntero de `docs/`** (submodule privado, commit aparte — `docs/` NO va en la submission).
-14. ⏳ **Higiene de la entrega — prosa y referencias colgantes** (pedido del usuario 28/09). **SECUENCIADO: va DESPUÉS de cerrar M14 y la medición de latencia.** Objetivo: que un revisor encuentre la lógica en menos de 2 líneas de lectura.
-    ⚠️ **Las MÉTRICAS NO SE BORRAN — son el bonus B7** (ver §5.14bis). Este pendiente es sólo *poda de prosa*, nunca *eliminación de instrumentación*.
+> Lista completa y detalle → `docs/tracking/PENDIENTES_ENTREGA.md`.
+> Estrategia → `docs/tracking/PRE_ENTREGA.md`. Acá solo el resumen.
 
-    **Medición del problema (28/09)**: `src/` tiene 3474 líneas; **1691 son prosa** (1109 de docstrings + 582 de comentarios = **48,7%**). Código real: 1333.
+1. 🔴 **En curso 06/10: auditoría + reescritura de docstrings** (3 puntos de
+   auditoría + recorrido módulo a módulo en norma ENGLISH Google-style).
+   Ver `PRE_ENTREGA.md` §3-5.
+2. 🔴 **`git push`** — `main` 1 commit adelante (`2a1768b`).
+3. 🔴 **Commitear el fix `echo_view`** — working tree en verde, aprobado.
+4. ✅ **Pydantic (IV.3.1) — DECISIÓN DE DISEÑO, no pendiente** (06/10).
+   Frontera de I/O; dataclasses en inner loop. Ver `PRE_ENTREGA.md` §2.
+5. ✅ **Smoke E2E público + privado — 05/10: 11/11 + 11/11.**
+6. 🟡 **Task 5.1**: `validate_output` no valida parameters contra el SCHEMA
+   (tipos, required, extra keys). TODO explícito en `output_validator.py`.
+7. 🟡 **Tasks 6.x**: doble camino de reporte `report()`/`write_json()` sin
+   unificar; `report()` fija `warm_up_discarded: True` falso en pipeline.
+8. 🟡 **B7 visualización — DIFERIDA** (06/10). Foundation: métricas +
+   tablas. Falta step-by-step con color. Ver `PENDIENTES_ENTREGA` M3.
+9. 🟡 **Test de humo en GPU** (golden de CPU diffeado). Procedimiento en
+   `docs/notes/HARDWARE_VM.md`.
+10. 🟡 **Latencia en campus** — decisión 06/10: KPI se valida ahí, no local.
+11. ⚪ **Backups de probes**: `grade_real.py` y set privado en `~/scratch/`;
+    el resto de `/tmp` se perdió.
+12. ⚪ **Poda de referencias colgantes en `src/`**: 2 punteros a `docs/`
+    (`function_loader.py:66`, `constrained_generator.py:63`) — se resuelven
+    EN LA REESCRITURA de docstrings (inlinear el porqué).
+13. ⚪ **Comparar salida cruda 1 vs 4 hilos** (~40 min). Márgenes de §8 son
+    todos 1 hilo; smoke de 4 hilos también dio 11/11 (evidencia débil).
 
-    | Qué | Veredicto | Evidencia |
-    |---|---|---|
-    | **Referencias a `docs/` desde `src/`** | 🔴 **defecto duro** | `function_loader.py:66` → `BITACORA_BUGS.md` · `constrained_generator.py:63` → `CONTEXTO_REFACTOR.md`. `docs/` es un repo **privado** (`github.com:lautarolma/call_me_maybe_docs`) y **no va en la submission**: punteros que el revisor no puede abrir. Hay que **inlinear el porqué** en el docstring |
-    | **Fechas de diario** en comentarios | 🟡 ruido puro | `(2026-09-18)`, `(2026-09-23/24)`, `dec. 25/09`, `probe 25/09` — ~10 ocurrencias. Al revisor le importa el BUG, no cuándo se encontró |
-    | **Refs al plan externo** | 🟡 misma clase colgante | `PLAN_DIDACTICO L1615/L1696`, `Inciso 4.1.1`, `Anexo §2.2` (4+2+2 ocurrencias). El revisor no tiene esos documentos |
-    | **Deliberación auto-referencial** | 🟡 | Frases que narran la conversación en vez del diseño ("POR QUÉ ES UN HELPER Y NO UN if EN EL LOOP", "DESVÍO del plan (ver docstring del módulo)"). Recortar a la decisión + el porqué |
-    | **Traducir la prosa a inglés** | 🔴 **NO** | Los comentarios en español son el estilo de la casa y la pedagogía del 42. Son 1691 líneas: reescribirlas cuesta muchísimo y **no suma un punto de la planilla**. El problema es el *volumen* y el *qué dice*, no el idioma. Ojo: el **README sí va en inglés** (exigido por el subject, cap. VII L676) |
+### 14. 🎁 BONUS B7 — diseño (aprobado, DIFERIDO)
 
-    **Orden de ataque sugerido**: (1) los 2 punteros colgantes — son 2 líneas y son los únicos que rompen algo; (2) fechas + refs al plan, que es `sed`-eable; (3) la poda de volumen, archivo por archivo, empezando por `schema_validator.py` (57,7%) y `constrained_generator.py` (43,7%).
-
-14bis. 🎁 **BONUS B7 — Visualización de la generación, CON estilo y color** (corregido por el usuario 28/09: *"son parte del bonus de representación, las vamos a usar para enseñar los resultados de la ejecución"*). **NO eliminar la instrumentación — es lo que se demuestra.**
-
-    **Verificado contra el enunciado oficial** (`docs/sources/en.subject.pdf`, cap. VII *Bonus Part*):
-    - L689: *"Visualization of the generation process"* — bonus oficial.
-    - L693: *"Bonus features must be implemented and **working** — not just described in the README.md."*
-    - 🔑 L694: *"You may be asked to **demonstrate them during evaluation**."* → no es decoración: **la evaluación puede pedir una demo en vivo.** Por eso el color tiene que ser el vehículo de la explicación, no adorno.
-    - Diseño ya definido en `PLAN_DIDACTICO.md` M13 B7: flag `--visualize` step-by-step, **verde = allowed · rojo = blocked · amarillo = estado actual**.
-
-    | Pieza | Qué hay | Qué falta |
-    |---|---|---|
-    | `MetricsRun` (`utils/metrics.py`) | forwards, skips, elapsed por `DecoderPhase` | — |
-    | `report_prompt_metrics()` (28/09) | tabla por prompt + `decode_metrics.json` | estilo/color |
-    | Doble camino de reporte | `report()`/`write_json()` (sólo los usan sus tests, y `report()` fija `warm_up_discarded: True` **falso en el pipeline**) | **unificar** en UN camino, con estilo — no borrar: son la fuente de datos de B7 |
-    | `--visualize` step-by-step | ❌ no existe | el verde/rojo/amarillo de B7 |
-
-    ⚠️ **Regla de ingeniería, NO hardcodear ANSI**: gatear con `sys.stdout.isatty()` y respetar `NO_COLOR` (https://no-color.org). Motivo concreto: el output de la corrida se **pega en el chat y se guarda en logs** — los códigos de escape ensucian la evidencia y rompen el diff de métricas. El color sólo cuando hay terminal de verdad; la corrida normal queda limpia.
-
-
-15. 🟡 **Comparar la salida CRUDA a 1 vs 4 hilos** (~40 min). Los 281 márgenes de §8 son **todos de 1 hilo** (`OMP_NUM_THREADS=1`); el smoke que dio 11/11 corrió con **4 hilos** porque el script no pinea la variable. El orden de reducción en float depende del número de hilos → **nunca se comparó crudo contra crudo**. Lo único que hay es evidencia *débil*: el smoke de 4 hilos también dio 11/11. Para cerrarlo: la misma corrida con `generate()` directo, sin validador, en ambas configuraciones, y diff de los 22 outputs.
-
----
+- Verificado en subject: *"Visualization of the generation process"*, debe
+  estar **working** y puede **demostrarse en la evaluación**.
+- Diseño: flag `--visualize` step-by-step, **verde = allowed · rojo =
+  blocked · amarillo = estado actual** (`PLAN_DIDACTICO.md` M13 B7).
+- Gate obligatorio: `sys.stdout.isatty()` + respetar `NO_COLOR` (el output
+  se pega en chat y logs; ANSI ensucia la evidencia).
+- Foundation hoy: `MetricsRun`, `DecoderPhase`, `report_prompt_metrics()`,
+  tablas de score de los smokes. **Nace en inglés.**
 
 ## 6. Protocolo de actualización
 
@@ -338,7 +333,7 @@ Trunco (**A**) · dropeo de comillas internas (**B**) · conteo de repeticiones 
 
 ### 8.1 La pregunta
 
-El usuario tiene el presentimiento de que **los bugs del modelo desaparecen en máquinas ajenas**. `CLAUDE.md:51` lo respalda: *float16 (10 bits de mantisa) puede invertir empates técnicos de logit*, y el test de humo en GPU está pendiente. Nadie lo había cuantificado. Esta sección lo cuantifica.
+El usuario tiene el presentimiento de que **los bugs del modelo desaparecen en máquinas ajenas**. El riesgo de float16 (10 bits de mantisa, puede invertir empates técnicos de logit) está documentado en `docs/notes/HARDWARE_VM.md`, y el test de humo en GPU está pendiente. Nadie lo había cuantificado. Esta sección lo cuantifica.
 
 ### 8.2 Dónde está la decisión (importante para instrumentar)
 

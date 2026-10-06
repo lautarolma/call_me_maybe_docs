@@ -102,8 +102,8 @@ compara el `return` value
 `functions_definition.py`).
 
 En cambio `~/scratch/call_me_maybe_task42/task43_accuracy.py` (el script que
-produjo el "82% full accuracy, P9/P10 fallan" que está en
-`ESTADO_ACTUAL.md`/`CLAUDE.md`) hace comparación de VALOR/TIPO estricta contra
+produjo el "82% full accuracy, P9/P10 fallan" que figuraba en el tracking de
+esa fecha) hace comparación de VALOR/TIPO estricta contra
 una lista fija de variantes aceptadas por parámetro:
 
 ```python
@@ -123,8 +123,8 @@ Consecuencia concreta, caso por caso:
   que ejecuta la función real, muy probablemente NO marcaría esto como error.
   El propio `PLAN_EJECUCION_V2.md` (§Etapa 2, nota previa) ya sospechaba algo
   así al decir que P10 "falla por DOS razones, no una" y que el `replacement`
-  (`'****'` vs `'*'`) es la causa real no-relajable — pero `ESTADO_ACTUAL.md` y
-  las secciones vigentes de `CLAUDE.md` todavía atribuyen el fallo, en parte,
+  (`'****'` vs `'*'`) es la causa real no-relajable — pero el tracking vigente
+  de esa fecha todavía atribuía el fallo, en parte,
   al grupo capturador como si fuera un fallo real ante moulinette.
 - **P9** (dígitos → NUMBERS): `replacement="NUMBER"` (singular) vs esperado
   `"NUMBERS"` (plural) SÍ cambia el string resultante de `re.sub` → ahí el
@@ -136,7 +136,7 @@ Consecuencia concreta, caso por caso:
   ejecuta) no distinga entre ambos. Otra fuente posible de subestimación.
 
 **Implicación práctica para la Etapa 2 del plan v2**: antes de decidir
-"relajar vs exigir" el scoring (pendiente #7 de la tabla de `CLAUDE.md`),
+"relajar vs exigir" el scoring (pendiente de esa fecha en el plan maestro),
 conviene correr el output real del pipeline contra el evaluador de verdad:
 
 ```bash
@@ -176,7 +176,7 @@ una decisión de arquitectura que corresponde marcar al usuario primero.
 
 Corrida y documentada, con la salvedad de medición de accuracy del punto
 anterior (script local vs moulinette real). El timing depende del hardware —
-ya está bien diagnosticado en `CLAUDE.md` §5 (VM con oversubscription de
+ya está bien diagnosticado en `docs/notes/HARDWARE_VM.md` (VM con oversubscription de
 vCPU, causa raíz identificada 27/09).
 
 ### Phase 5 / Etapa 1 (capa de salida) — parcialmente implementada en `e415a6c`
@@ -204,7 +204,7 @@ vCPU, causa raíz identificada 27/09).
   test que ejercite `parse_output` / `build_function_call` / `validate_output`
   / `build_results` directamente (verificado sobre los 10 archivos de
   `tests/`). Es la Task 1.4 de la Etapa 1 del plan v2, todavía pendiente.
-- **Desalineado con el propio `CLAUDE.md` del proyecto**: la tabla de tareas
+- **Desalineado con el plan maestro de esa fecha**: la tabla de tareas
   (incluso tras la actualización del 27/09 leída en esta sesión) sigue
   marcando la fila 5.1/5.2 con ⬜, pese a que `e415a6c` ya las adelantó
   bastante. Vale la pena actualizarla para no perder el hilo entre sesiones.
@@ -228,5 +228,5 @@ señalar.
 3. Completar `validate_output()` contra el schema completo (tipos, required,
    extra keys) y conectarlo al pipeline, más sus tests — cierre real de la
    Task 5.1 / Etapa 1.1-1.4 del plan v2.
-4. Actualizar la tabla de tareas de `CLAUDE.md` (filas 3-4) para reflejar el
+4. Actualizar la tabla de tareas del plan maestro (filas 3-4) para reflejar el
    avance real de `e415a6c`.
