@@ -29,8 +29,9 @@
 2. **Reglas A/B/C post-hoc** en `src/validator/output_validator.py`:
    familia unificada (truncado · comillas internas · conteo de corridas).
    11/11 público + 11/11 privado. Costo: 0,4 ms por suite.
-3. **Latencia local fuera de KPI** (~325s vs 300s el 05/10): se valida en
-   **campus**. `probe_ceiling.py` armado por si hace falta atribución.
+3. **Latencia local fuera de KPI por hardware** (~325 s vs 300 s el 05/10).
+   ✅ **Resuelto 09/10 en campus**: caja real (i5-8500, CPU-only, cache HF
+   frío) → **2'43" (163 s)**, 137 forwards, **PASS** con 137 s de margen.
 4. **`echo_view` = higiene de consola** (pantalla = disco post-validación).
    No es feature ni bonus. El entregable es el JSON de `data/output/`.
 5. **B7 visualización de generación: DIFERIDA.** Foundation existente:

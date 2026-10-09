@@ -44,10 +44,13 @@ trabajo de hoy.
 
 ## 🟡 MEDIOS — no bloquean, pero son puntos de la planilla
 
-### M1. Task 5.1 — validar `parameters` contra el SCHEMA de la función
-`validate_output()` hoy chequea que `name` exista, pero **no** valida tipos,
-keys faltantes/extra ni required contra el schema (TODO explícito en
-`output_validator.py`). Task 5.1/1.2 del plan. Ver `ANALISIS_ALINEACION` §2.
+### M1. Task 5.1 — validación de `parameters` contra el SCHEMA — ✅ CERRADO 09/10 (cubierto por construcción)
+**Decisión:** NO se revalida post-hoc. El schema se enforcea en decode-time por
+construcción (`SchemaContext`: keys no-extra/no-duplicadas, required, tipos,
+forma integer) — subject V.1/V.3; y `FunctionCall` (pydantic) valida la
+estructura del output (IV.3.1). `validate_output()` era redundante y **no lo
+invocaba nadie** (código muerto): eliminado junto con sus 2 tests. Ver
+`ANALISIS_ALINEACION` §2.
 
 ### M2. Tasks 5.2/5.3 y 6.x del plan maestro
 - 5.2/5.3: resuelto de facto (`a4b054d` + `79499ab`) — falta cerrar la fila.
@@ -75,15 +78,17 @@ Ver tabla de bonuses abajo.
 flake8 0, mypy 23 archivos). Las reglas A/B/C se ven reparando en vivo en
 `suite_private.log`. **Cerrado.**
 
-### P2. Latencia local — fuera de KPI, se valida en CAMPUS (decisión 06/10)
-Medido 05/10: pública ~325s (KPI 300s), privada ~407s. Regresión atribuida
+### P2. Latencia local — fuera de KPI por hardware, ✅ resuelto en CAMPUS
+Medido 05/10: pública ~325 s (KPI 300 s), privada ~407 s. Regresión atribuida
 a entorno (energía/host), no a código — mismo trabajo, mejor CPU-s/fwd,
-menos cores efectivos. `probe_ceiling.py` armado para atribución si hace
-falta. **No bloquea: el KPI se juega en campus.**
+menos cores efectivos. **El KPI se jugó en campus y PASÓ (ver P3).**
 
-### P3. Latencia en campus — pendiente del usuario
-Con la VM/caja del campus. Referencia histórica local: 292,72 s (27/09,
-4 vCPU cap 80, agente cerrado). Cluster: 74,3 s.
+### P3. Latencia en campus — ✅ RESUELTO 09/10
+Caja real de corrección (i5-8500, 6 threads, 7,63 GiB, `torch 2.13.0+cpu`,
+sin CUDA, cache HF frío): **wall 163 s (2'43")** · generación 124 s (2'04") ·
+**137 forwards** → **KPI PASS** (límite 300 s, margen 137 s). Pase GPU
+`SKIPPED` (sin CUDA; entregable CPU-only). Referencia histórica local:
+292,72 s (27/09, 4 vCPU cap 80, agente cerrado). Cluster: 74,3 s.
 
 ### P4. Test de humo en equipo con GPU — pendiente
 Guardar golden de CPU, correr en GPU, diffear. Procedimiento documentado
@@ -104,6 +109,7 @@ probes de `/tmp` se perdió. Lowest value.
 | Ítem | Cómo / Cuándo |
 |---|---|
 | Smoke público + privado E2E | 05/10 → 11/11 + 11/11 |
+| **Latencia KPI en campus** (163 s, PASS) | 09/10 → caja i5-8500, CPU-only |
 | Reglas A/B/C (truncado, comillas, conteo) | `bd07ad1` + `3087fc5` |
 | P9 reparado sin tocar logits | regla C, `_collapse_repeated_run` |
 | Coerción `number`→float / `"integer"` privado | `aed4c14` |

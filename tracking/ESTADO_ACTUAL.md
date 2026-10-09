@@ -2,8 +2,8 @@
 
 > Archivo de estado DINÁMICO — fuente de verdad de la sesión, se lee al inicio y al fin de cada sesión. Formato COMPACTO a propósito: **este archivo es para arrancar sesión y decidir, no para historia.** Detalle fino → `docs/design/`, bugs → `docs/tracking/BITACORA_BUGS.md`, hardware → `docs/notes/HARDWARE_VM.md`, y las series históricas de medición están en el **git history** (no se repiten acá).
 
-**Última actualización**: 2026-10-06 — **re-baseline post-smoke**. HEAD `2a1768b` · 272 tests · smoke E2E 05/10: **11/11 público + 11/11 privado** · `CLAUDE.md` eliminado · `docs/` fuera del repo principal · Pydantic cerrado como decisión de diseño · latencia local → campus. Estrategia vigente → `PRE_ENTREGA.md`.
-**Snapshot 05/10**: KPIs — **accuracy 11/11 (100%) en ambos sets** · latencia local ~325s (fuera de KPI de 300s, se valida en campus) · lint 0 · 272 tests GREEN.
+**Última actualización**: 2026-10-09 — **cierre de KPI**. HEAD `631c37e` · 269 tests · smoke E2E 05/10: **11/11 público + 11/11 privado** · `CLAUDE.md` eliminado · `docs/` fuera del repo principal · Pydantic cerrado como decisión de diseño · **KPI latencia VALIDADO en campus**. Estrategia vigente → `PRE_ENTREGA.md`.
+**Snapshot 09/10**: KPIs — **accuracy 11/11 (100%) en ambos sets** · **latencia campus 163 s (2'43") < 300 s → PASS** · lint 0 · 269 tests GREEN.
 
 ---
 
@@ -11,13 +11,13 @@
 
 | Criterio del subject | Bar | Medido (05/10) | Estado |
 |---|---|---|---|
-| Suite de 11 prompts | < 5 min | local **~325s (5'25")** · campus: por medir | ⚠️ local fuera de KPI — decisión: se valida en campus |
+| Suite de 11 prompts | < 5 min | **campus 163 s (2'43")** · local ~325 s | ✅ campus PASS · local fuera de KPI (hardware) |
 | Accuracy público (M14) | ≥ 90% | **11/11 = 100%** | ✅ |
 | Accuracy privado | ≥ 90% | **11/11 = 100%** | ✅ |
 | Accuracy fn (nombre) | — | 11/11 (100%) ambos sets | ✅ |
 | Entregable | archivo existe | ✅ 11 entries en `function_calling_results.json` | ✅ |
 | lint (`make lint`) | == moulinette | flake8 0 · mypy 23 archivos | ✅ |
-| tests | verde | **272 passed** | ✅ |
+| tests | verde | **269 passed** | ✅ |
 | pydantic en clases | IV.3.1 | **decisión de diseño documentada** (frontera I/O) | ✅ — ver `PRE_ENTREGA.md` §2 |
 
 ### 1.1 Latencia — la carrera de hardware se CERRÓ
@@ -103,11 +103,11 @@ Esta subsection decía *"cobrar el 10/11 y documentarlo como limitación conocid
 
 - 🔑 **El tiempo escala lineal con TOKENS DE SALIDA, no con el candidate set.** El SDK **no tiene KV-cache**: cada forward re-alimenta la secuencia completa. Confirmado: P1 (34,3 s) vs P0 (12,4 s) con el mismo schema (solo `265`/`345` son multi-token); P9 y P10 cuestan 40,3 y 42,2 s con schema casi idéntico. **Reducir candidatos NO abarata el forward**; sólo evita forwards si logra singleton.
 - **Forwards de strings ≈ tokens BPE + comilla final, EXACTO** — no hay margen en strings libres.
-- **133 forwards** para los 11 prompts. Fases: `IN_STRING_VALUE` **82% del tiempo**, `IN_NUMBER_VALUE` 13 fwd, el resto de estructura **0 fwd** (todo por oráculo).
+- **137 forwards** para los 11 prompts (era 133 pre-`aed4c14`; +4 por cerrar `"number"` como float). Fases: `IN_STRING_VALUE` **82% del tiempo**, `IN_NUMBER_VALUE` 13 fwd, el resto de estructura **0 fwd** (todo por oráculo).
 - **Per-prompt (s)**: 20,1 · 34,3 · 12,4 · 10,1 · 10,4 · 10,4 · 18,5 · 21,9 · **58,5** · 40,3 · 42,2. P8 = 21% del total (el más largo, y PASA).
 - **Overhead de arranque = 13,64 s (4,7% del wall)**: pesos ya cacheados (0,58 s) + índice de vocab de 151.643 + trie. Pre-índice y header estático lo dejaron en el plagó. **Ahí no hay más que ganar.**
 - **Techo de la VM = 3,39 de 4 cores (85%)**, `steal=0`. Con `cpuexecutioncap 80` el techo real es 3,2. **El ambiente de fondo se come 1,29 cores (32%) con la VM "idle"** (`opencode`, `gnome-shell`, `tracker-miner`).
-- **Pillow de CLUSTER (mismo código, mismo build `+cpu`): 0,56 s/fwd, 133 forwards, 1'14".** Local quedó en **2,10 s/fwd → 3,75x de brecha, y ya NO es config: es hardware de host** (i7-7700HQ de notebook vs nodo de cluster).
+- **Pillow de CLUSTER (mismo código, mismo build `+cpu`): 0,56 s/fwd, 133 forwards (código pre-`aed4c14`), 1'14".** Local quedó en **2,10 s/fwd → 3,75x de brecha, y ya NO es config: es hardware de host** (i7-7700HQ de notebook vs nodo de cluster).
 - **Vocab (151.643 tokens)**: 96,87% son `string_safe` → bucketizar `IN_STRING_VALUE` NO sirve. El BPE fragmenta dígitos y puntuación (peor 2,17 chars/token).
 - **Palancas que quedan, ninguna barata**: B′ (autocompletar `fn_name` por trie) y Nivel 2 del oráculo. Diferidas por decisión del usuario. El KPI ya se cumple → esto es hambre, no supervivencia.
 
@@ -167,15 +167,19 @@ Regla común a las tres: **keyeada en el tipo declarado del schema, NUNCA blanke
 4. ✅ **Pydantic (IV.3.1) — DECISIÓN DE DISEÑO, no pendiente** (06/10).
    Frontera de I/O; dataclasses en inner loop. Ver `PRE_ENTREGA.md` §2.
 5. ✅ **Smoke E2E público + privado — 05/10: 11/11 + 11/11.**
-6. 🟡 **Task 5.1**: `validate_output` no valida parameters contra el SCHEMA
-   (tipos, required, extra keys). TODO explícito en `output_validator.py`.
-7. 🟡 **Tasks 6.x**: doble camino de reporte `report()`/`write_json()` sin
-   unificar; `report()` fija `warm_up_discarded: True` falso en pipeline.
+6. ✅ **Task 5.1 (M1) — CERRADO 09/10**: no se revalida post-hoc. El schema se
+   enforcea en decode-time (`SchemaContext`) y `FunctionCall` pydantic valida la
+   estructura. `validate_output()` (muerto, sin llamadores) eliminado + sus 2 tests.
+7. ✅ **Task 6.x — CERRADO 09/10 (M2)**: eliminado el camino muerto
+   `report()`/`write_json()`; el único writer es `report_prompt_metrics()`
+   (`0c09a26`). Se fue también el `warm_up_discarded: True` hardcodeado.
 8. 🟡 **B7 visualización — DIFERIDA** (06/10). Foundation: métricas +
    tablas. Falta step-by-step con color. Ver `PENDIENTES_ENTREGA` M3.
 9. 🟡 **Test de humo en GPU** (golden de CPU diffeado). Procedimiento en
    `docs/notes/HARDWARE_VM.md`.
-10. 🟡 **Latencia en campus** — decisión 06/10: KPI se valida ahí, no local.
+10. ✅ **Latencia en campus — CERRADO 09/10**: KPI validado en la caja real
+    (i5-8500, 6 threads, CPU-only, cache HF frío): **2'43" wall (163 s)**, 137
+    forwards, PASS. Pase GPU SKIPPED (sin CUDA).
 11. ⚪ **Backups de probes**: `grade_real.py` y set privado en `~/scratch/`;
     el resto de `/tmp` se perdió.
 12. ⚪ **Poda de referencias colgantes en `src/`**: 2 punteros a `docs/`
@@ -420,22 +424,20 @@ caro. Si alguna vez hay que optimizar, el objetivo es la búsqueda, no la regla.
 ### Contraste con el presupuesto
 
 ```
-KPI latencia (27/09):   4'52" = 292 s      límite 5'00" = 300 s   margen 8 s
-Costo peor caso A+B+C:      0,000448 s por suite de 11 casos
-Fracción del presupuesto:  0,000153 %
+KPI latencia (27/09 VM):     4'52" = 292 s     límite 5'00" = 300 s   margen 8 s
+KPI latencia (09/10 campus): 2'43" = 163 s                            margen 137 s
+Costo peor caso A+B+C:         0,000448 s por suite de 11 casos
+Fracción del presupuesto:      0,000153 %
 ```
 
 **A+B+C se comen 0,4 ms de los 8 s de margen disponibles.** El KPI de latencia
 no se mueve.
 
-### Lo que falta — y por qué no se midió acá
+### Cerrado — el KPI end-to-end se re-verificó en campus (09/10)
 
-🔴 **El KPI end-to-end NO fue re-verificado después de B+C.** No por las reglas
-(que son gratis), sino por `§1.1`: *"nunca medir latencia con el agente vivo"*
-— el agente activo la contamina por **2,6x**. Con el agente corriendo, cualquier
-cifra de end-to-end es basura.
-
-Para cerrarlo hace falta una sesión **sin agente**, igual que para `make run`:
-corrida única de la suite, sin procesos competidores, y recién ahí comparar
-contra los 4'52" de referencia. Instrumento: `/tmp/opencode/bench_validator_latency.py`
-(mide el validador) — para el end-to-end falta el que ya usa `§3`.
+✅ **El KPI end-to-end se validó en la caja real del campus** (09/10): la suite
+de 11 prompts corrió en **2'43" (163 s)** con 137 forwards, contra el límite de
+300 s → **PASS con margen de 137 s**. La corrida es el pipeline completo
+(`python -m src`, incluye B+C), así que el end-to-end quedó re-verificado
+*después* de las reglas. El caveat de `§1.1` (no medir latencia con el agente
+vivo) es para la máquina de desarrollo local, no para la caja de corrección.
